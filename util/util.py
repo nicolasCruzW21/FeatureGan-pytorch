@@ -6,6 +6,15 @@ from PIL import Image
 import os
 
 
+def im2tensor(input_image, imtype=np.uint8):
+    "Converts a numpy image array into a Tensor."
+
+    image_numpy = input_image * 2.0 / 255.0
+    image_numpy = image_numpy - 1
+    image_numpy = np.transpose(image_numpy, (2, 0, 1))
+    tensor_image = torch.from_numpy(image_numpy).cuda().float()
+    return tensor_image.unsqueeze(0)
+
 def tensor2im(input_image, imtype=np.uint8):
     """"Converts a Tensor array into a numpy image array.
 
@@ -18,6 +27,7 @@ def tensor2im(input_image, imtype=np.uint8):
             image_tensor = input_image.data
         else:
             return input_image
+        #print("input_image size:------------ ",input_image.size())
         image_numpy = image_tensor[0].cpu().float().numpy()  # convert it into a numpy array
         if image_numpy.shape[0] == 1:  # grayscale to RGB
             image_numpy = np.tile(image_numpy, (3, 1, 1))

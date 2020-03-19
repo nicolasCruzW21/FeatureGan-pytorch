@@ -1,5 +1,6 @@
 import random
 import torch
+import torchvision
 
 
 class ImagePool():
@@ -16,6 +17,7 @@ class ImagePool():
             pool_size (int) -- the size of image buffer, if pool_size=0, no buffer will be created
         """
         self.pool_size = pool_size
+        self.jitter = torchvision.transforms.ColorJitter(brightness=0.2, contrast=0.1, saturation=0.1, hue=0.1)
         if self.pool_size > 0:  # create an empty pool
             self.num_imgs = 0
             self.images = []
@@ -50,5 +52,27 @@ class ImagePool():
                     return_images.append(tmp)
                 else:       # by another 50% chance, the buffer will return the current image
                     return_images.append(image)
+        return_images = torch.cat(return_images, 0)   # collect all the images and return
+        return return_images
+
+    def jitter(self, images):
+        """Return an image from the pool.
+
+        Parameters:
+            images: the latest generated images from the generator
+
+        Returns images from the buffer.
+
+        By 50/100, the buffer will return input images.
+        By 50/100, the buffer will return images previously stored in the buffer,
+        and insert the current images to the buffer.
+        """
+        if self.pool_size == 0:  # if the buffer size is 0, do nothing
+            return images
+        return_images = []
+        for image in images:
+            image = self.jitter(torch.unsqueeze(image.data, 0))
+
+            return_images.append(image)
         return_images = torch.cat(return_images, 0)   # collect all the images and return
         return return_images
