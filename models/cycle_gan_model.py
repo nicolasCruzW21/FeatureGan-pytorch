@@ -86,16 +86,16 @@ class CycleGANModel(BaseModel):
             self.netD_A_L = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
                                             1, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
-            self.netD_A_G = networks.define_D(opt.output_nc, opt.ndf, 'n_layers',
+            self.netD_A_G = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
                                             5, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
             self.netD_B = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
                                             opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
-            self.netD_B_L = networks.define_D_L(opt.input_nc, opt.ndf, opt.netD,
+            self.netD_B_L = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
                                             1, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
-            self.netD_B_G = networks.define_D(opt.input_nc, opt.ndf, 'n_layers',
+            self.netD_B_G = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
                                             5, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
@@ -114,8 +114,7 @@ class CycleGANModel(BaseModel):
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters(),self.netD_A_G.parameters(),
- self.netD_B_G.parameters(),self.netD_A_L.parameters(), self.netD_B_L.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters(),self.netD_A_G.parameters(), self.netD_B_G.parameters(),self.netD_A_L.parameters(), self.netD_B_L.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
