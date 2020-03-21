@@ -55,7 +55,7 @@ class CycleGANModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ['D_A','D_A_G','D_A_L', 'G_A', 'cycle_A', 'D_B', 'D_B_G', 'D_B_L', 'G_B', 'cycle_B', 'G_A_G', 'G_B_G','G_A_L', 'G_B_L']
+        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'D_B', 'G_B', 'cycle_B']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         visual_names_A = ['real_A', 'fake_B', 'rec_A']
         visual_names_B = ['real_B', 'fake_A', 'rec_B']
@@ -110,7 +110,7 @@ class CycleGANModel(BaseModel):
             self.criterionIdt = torch.nn.L1Loss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
             self.upsample = torch.nn.Upsample(scale_factor=2, mode='bicubic')
-            self.jitter = torchvision.transforms.ColorJitter(brightness=0.01, contrast=0.0, saturation=0.00, hue=0.0)
+            self.jitter = torchvision.transforms.ColorJitter(brightness=0.1, contrast=0.0, saturation=0.05, hue=0.0)
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -252,13 +252,13 @@ class CycleGANModel(BaseModel):
         # GAN loss D_B(G_B(B))
         self.loss_G_B = self.criterionGAN(self.netD_B(self.fake_A), True)
         # GAN loss D_A_Global(G_A(A))
-        self.loss_G_A_G = self.criterionGAN(self.netD_A_G(self.fake_B), True)
+        #self.loss_G_A_G = self.criterionGAN(self.netD_A_G(self.fake_B), True)
         # GAN loss D_B_Global(G_B(B))
-        self.loss_G_B_G = self.criterionGAN(self.netD_B_G(self.fake_A), True)
+        #self.loss_G_B_G = self.criterionGAN(self.netD_B_G(self.fake_A), True)
         # GAN loss D_A_L(G_A(A))
-        self.loss_G_A_L = self.criterionGAN(self.netD_A_L(self.fake_B), True)
+        #self.loss_G_A_L = self.criterionGAN(self.netD_A_L(self.fake_B), True)
         # GAN loss D_B_L(G_B(B))
-        self.loss_G_B_L = self.criterionGAN(self.netD_B_L(self.fake_A), True)
+        #self.loss_G_B_L = self.criterionGAN(self.netD_B_L(self.fake_A), True)
 
 #tensor2im
 
@@ -270,7 +270,7 @@ class CycleGANModel(BaseModel):
 
         
 
-        self.D_Loss = self.loss_G_A * 0.5 + self.loss_G_A_G * 0.25  + self.loss_G_A_L * 0.25 + self.loss_G_B*0.5 + self.loss_G_B_G * 0.25 + self.loss_G_B_L * 0.25
+        self.D_Loss = self.loss_G_A + self.loss_G_B
 
 
         
@@ -298,8 +298,8 @@ class CycleGANModel(BaseModel):
         self.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
         self.backward_D_A()      # calculate gradients for D_A
         self.backward_D_B()      # calculate graidents for D_B
-        self.backward_D_A_G()      # calculate gradients for D_A
-        self.backward_D_B_G()      # calculate graidents for D_B
-        self.backward_D_A_L()      # calculate gradients for D_A
-        self.backward_D_B_L()      # calculate graidents for D_B
+        #self.backward_D_A_G()      # calculate gradients for D_A
+        #self.backward_D_B_G()      # calculate graidents for D_B
+        #self.backward_D_A_L()      # calculate gradients for D_A
+        #self.backward_D_B_L()      # calculate graidents for D_B
         self.optimizer_D.step()  # update D_A and D_B's weights
