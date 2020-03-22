@@ -55,7 +55,7 @@ class CycleGANModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'D_B', 'G_B', 'cycle_B']
+        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'D_B', 'G_B', 'cycle_B', 'idt_B', 'idt_A']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         visual_names_A = ['real_A', 'fake_B', 'rec_A']
         visual_names_B = ['real_B', 'fake_A', 'rec_B']
@@ -284,7 +284,7 @@ class CycleGANModel(BaseModel):
 
 
         # combined loss and calculate gradients
-        self.loss_G = self.CycleLoss + self.D_Loss
+        self.loss_G = self.CycleLoss + self.D_Loss + self.loss_idt_B + self.loss_idt_A
         self.loss_G.backward()
 
     def optimize_parameters(self,epoch):
