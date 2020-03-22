@@ -39,7 +39,7 @@ class CycleGANModel(BaseModel):
         Identity loss (optional): lambda_identity * (||G_A(B) - B|| * lambda_B + ||G_B(A) - A|| * lambda_A) (Sec 5.2 "Photo generation from paintings" in the paper)
         Dropout is not used in the original CycleGAN paper.
         """
-        parser.set_defaults(no_dropout=True)  # default CycleGAN did not use dropout
+        parser.set_defaults(no_dropout=False)  # default CycleGAN did not use dropout
         if is_train:
             parser.add_argument('--lambda_A', type=float, default=10.0, help='weight for cycle loss (A -> B -> A)')
             parser.add_argument('--lambda_B', type=float, default=10.0, help='weight for cycle loss (B -> A -> B)')
@@ -67,7 +67,7 @@ class CycleGANModel(BaseModel):
         self.visual_names = visual_names_A + visual_names_B  # combine visualizations for A and B
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
         if self.isTrain:
-            self.model_names = ['G_A', 'G_B', 'D_A', 'D_B', 'D_A_G', 'D_B_G', 'D_A_L', 'D_B_L']
+            self.model_names = ['G_A', 'G_B', 'D_A', 'D_B']
         else:  # during test time, only load Gs
             self.model_names = ['G_A', 'G_B']
 
@@ -84,19 +84,19 @@ class CycleGANModel(BaseModel):
                                             opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
             self.netD_A_L = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
-                                            1, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
+                                            opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
             self.netD_A_G = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
-                                            5, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
+                                            opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
             self.netD_B = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
                                             opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
             self.netD_B_L = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
-                                            1, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
+                                            opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
             self.netD_B_G = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
-                                            5, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
+                                            opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
         if self.isTrain:
@@ -106,11 +106,11 @@ class CycleGANModel(BaseModel):
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
-            self.criterionCycle = torch.nn.L1Loss()
-            self.criterionIdt = torch.nn.L1Loss()
+            self.criterionCycle = torch.nn.MSELoss()
+            self.criterionIdt = torch.nn.MSELoss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
             self.upsample = torch.nn.Upsample(scale_factor=2, mode='bicubic')
-            self.jitter = torchvision.transforms.ColorJitter(brightness=0.1, contrast=0.0, saturation=0.05, hue=0.0)
+            self.jitter = torchvision.transforms.ColorJitter(brightness=0.05, contrast=0.0, saturation=0.05, hue=0.0)
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -133,15 +133,22 @@ class CycleGANModel(BaseModel):
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
-        self.fake_B = self.netG_A(self.real_A)  # G_A(A)
-        PIL_fake_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_B)))
-        fake_B_Jittered = util.im2tensor(np.array(PIL_fake_B_Jitter))
-        self.rec_A = self.netG_B(fake_B_Jittered)   # G_B(G_A(A))
+        if self.isTrain:
+            self.fake_B = self.netG_A(self.real_A)  # G_A(A)
+            PIL_fake_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_B)))
+            fake_B_Jittered = util.im2tensor(np.array(PIL_fake_B_Jitter))
+            self.rec_A = self.netG_B(fake_B_Jittered)   # G_B(G_A(A))
 
-        self.fake_A = self.netG_B(self.real_B)  # G_B(B)
-        PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_A)))
-        fake_A_Jittered = util.im2tensor(np.array(PIL_fake_A_Jitter))
-        self.rec_B = self.netG_A(fake_A_Jittered)   # G_A(G_B(B))
+            self.fake_A = self.netG_B(self.real_B)  # G_B(B)
+            PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_A)))
+            fake_A_Jittered = util.im2tensor(np.array(PIL_fake_A_Jitter))
+            self.rec_B = self.netG_A(fake_A_Jittered)   # G_A(G_B(B))
+        else:
+            self.fake_B = self.netG_A(self.real_A)  # G_A(A)
+            self.rec_A = self.netG_B(self.fake_B)   # G_B(G_A(A))
+
+            self.fake_A = self.netG_B(self.real_B)  # G_B(B)
+            self.rec_B = self.netG_A(self.fake_A)   # G_A(G_B(B))
 
 
     def backward_D_basic(self, netD, real, fake):
