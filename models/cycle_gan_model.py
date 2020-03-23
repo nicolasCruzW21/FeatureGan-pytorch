@@ -39,7 +39,7 @@ class CycleGANModel(BaseModel):
         Identity loss (optional): lambda_identity * (||G_A(B) - B|| * lambda_B + ||G_B(A) - A|| * lambda_A) (Sec 5.2 "Photo generation from paintings" in the paper)
         Dropout is not used in the original CycleGAN paper.
         """
-        parser.set_defaults(no_dropout=False)  # default CycleGAN did not use dropout
+        parser.set_defaults(no_dropout=True)  # default CycleGAN did not use dropout
         if is_train:
             parser.add_argument('--lambda_A', type=float, default=10.0, help='weight for cycle loss (A -> B -> A)')
             parser.add_argument('--lambda_B', type=float, default=10.0, help='weight for cycle loss (B -> A -> B)')
@@ -79,24 +79,15 @@ class CycleGANModel(BaseModel):
         self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
+        #self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, 'cascade', opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
+
         if self.isTrain:  # define discriminators
             self.netD_A = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
                                             opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
-            self.netD_A_L = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
+            self.netD_B = networks.define_D(opt.input_nc, opt.ndf, opt.netD, 
                                             opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
-
-            self.netD_A_G = networks.define_D(opt.output_nc, opt.ndf, opt.netD,
-                                            opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
-
-            self.netD_B = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
-                                            opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
-
-            self.netD_B_L = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
-                                            opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
-
-            self.netD_B_G = networks.define_D(opt.input_nc, opt.ndf, opt.netD,
-                                            opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
+ 
 
 
         if self.isTrain:
@@ -114,7 +105,7 @@ class CycleGANModel(BaseModel):
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters(),self.netD_A_G.parameters(), self.netD_B_G.parameters(),self.netD_A_L.parameters(), self.netD_B_L.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
@@ -134,21 +125,21 @@ class CycleGANModel(BaseModel):
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         if self.isTrain:
-            self.fake_B = self.netG_A(self.real_A) + self.real_A  # G_A(A)
+            self.fake_B = self.netG_A(self.real_A) # G_A(A)
             PIL_fake_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_B)))
             fake_B_Jittered = util.im2tensor(np.array(PIL_fake_B_Jitter))
-            self.rec_A = self.netG_B(fake_B_Jittered) + fake_B_Jittered   # G_B(G_A(A))
+            self.rec_A = self.netG_B(fake_B_Jittered)   # G_B(G_A(A))
 
-            self.fake_A = self.netG_B(self.real_B) + self.real_B  # G_B(B)
+            self.fake_A = self.netG_B(self.real_B)# G_B(B)
             PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_A)))
             fake_A_Jittered = util.im2tensor(np.array(PIL_fake_A_Jitter))
-            self.rec_B = self.netG_A(fake_A_Jittered) + fake_A_Jittered   # G_A(G_B(B))
+            self.rec_B = self.netG_A(fake_A_Jittered)  # G_A(G_B(B))
         else:
-            self.fake_B = self.netG_A(self.real_A) + self.real_A  # G_A(A)
-            self.rec_A = self.netG_B(self.fake_B) + self.fake_B   # G_B(G_A(A))
+            self.fake_B = self.netG_A(self.real_A)# G_A(A)
+            self.rec_A = self.netG_B(self.fake_B)# G_B(G_A(A))
 
-            self.fake_A = self.netG_B(self.real_B) + self.real_B  # G_B(B)
-            self.rec_B = self.netG_A(self.fake_A) + self.fake_A   # G_A(G_B(B))
+            self.fake_A = self.netG_B(self.real_B)# G_B(B)
+            self.rec_B = self.netG_A(self.fake_A)# G_A(G_B(B))
 
 
     def backward_D_basic(self, netD, real, fake):
@@ -178,50 +169,10 @@ class CycleGANModel(BaseModel):
         fake_B = self.fake_B_pool.query(self.fake_B)
         self.loss_D_A = self.backward_D_basic(self.netD_A, self.real_B, fake_B)
 
-    def backward_D_A_G(self):
-        """Calculate GAN loss for discriminator D_A"""
-        fake_B = self.fake_B_pool.query(self.fake_B)
-        #PIL_fake_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_B)))
-        #fake_B_Jittered = util.im2tensor(np.array(PIL_fake_B_Jitter))
-
-        #PIL_real_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.real_B)))
-        #real_B_Jittered = util.im2tensor(np.array(PIL_real_B_Jitter))
-        self.loss_D_A_G = self.backward_D_basic(self.netD_A_G, self.real_B, fake_B)
-
-    def backward_D_A_L(self):
-        """Calculate GAN loss for discriminator D_A"""
-        fake_B = self.fake_B_pool.query(self.fake_B)
-        #PIL_fake_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_B)))
-        #fake_B_Jittered = util.im2tensor(np.array(PIL_fake_B_Jitter))
-
-        #PIL_real_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.real_B)))
-        #real_B_Jittered = util.im2tensor(np.array(PIL_real_B_Jitter))
-        self.loss_D_A_L = self.backward_D_basic(self.netD_A_L, self.real_B, fake_B)
-
     def backward_D_B(self):
         """Calculate GAN loss for discriminator D_B"""
         fake_A = self.fake_A_pool.query(self.fake_A)
         self.loss_D_B = self.backward_D_basic(self.netD_B, self.real_A, fake_A)
-
-    def backward_D_B_G(self):
-        """Calculate GAN loss for discriminator D_B"""
-        fake_A = self.fake_A_pool.query(self.fake_A)
-        #PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_A)))
-        #fake_A_Jittered = util.im2tensor(np.array(PIL_fake_A_Jitter))
-
-        #PIL_real_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.real_A)))
-        #real_A_Jittered = util.im2tensor(np.array(PIL_real_A_Jitter))
-        self.loss_D_B_G = self.backward_D_basic(self.netD_B_G, self.real_A, fake_A)
-
-    def backward_D_B_L(self):
-        """Calculate GAN loss for discriminator D_B"""
-        fake_A = self.fake_A_pool.query(self.fake_A)
-        #PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_A)))
-        #fake_A_Jittered = util.im2tensor(np.array(PIL_fake_A_Jitter))
-
-        #PIL_real_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.real_A)))
-        #real_A_Jittered = util.im2tensor(np.array(PIL_real_A_Jitter))
-        self.loss_D_B_L = self.backward_D_basic(self.netD_B_L, self.real_A, fake_A)
 
     def backward_G(self,epoch):
         """Calculate the loss for generators G_A and G_B"""
@@ -231,11 +182,11 @@ class CycleGANModel(BaseModel):
         # Identity loss
         if lambda_idt > 0:
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.idt_A = self.netG_A(self.real_B) + self.real_B
+            self.idt_A = self.netG_A(self.real_B)
 
             self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            self.idt_B = self.netG_B(self.real_A) + self.real_A
+            self.idt_B = self.netG_B(self.real_A)
 
             self.loss_idt_B = self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
         else:
@@ -259,14 +210,7 @@ class CycleGANModel(BaseModel):
         self.loss_G_A = self.criterionGAN(self.netD_A(self.fake_B), True)
         # GAN loss D_B(G_B(B))
         self.loss_G_B = self.criterionGAN(self.netD_B(self.fake_A), True)
-        # GAN loss D_A_Global(G_A(A))
-        #self.loss_G_A_G = self.criterionGAN(self.netD_A_G(self.fake_B), True)
-        # GAN loss D_B_Global(G_B(B))
-        #self.loss_G_B_G = self.criterionGAN(self.netD_B_G(self.fake_A), True)
-        # GAN loss D_A_L(G_A(A))
-        #self.loss_G_A_L = self.criterionGAN(self.netD_A_L(self.fake_B), True)
-        # GAN loss D_B_L(G_B(B))
-        #self.loss_G_B_L = self.criterionGAN(self.netD_B_L(self.fake_A), True)
+
 
 #tensor2im
 
@@ -276,13 +220,7 @@ class CycleGANModel(BaseModel):
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
         self.CycleLoss = self.loss_cycle_A + self.loss_cycle_B
 
-        
-
         self.D_Loss = self.loss_G_A + self.loss_G_B
-
-
-        
-
 
         # combined loss and calculate gradients
         self.loss_G = self.CycleLoss + self.D_Loss + self.loss_idt_B + self.loss_idt_A
@@ -294,20 +232,12 @@ class CycleGANModel(BaseModel):
         self.forward()      # compute fake images and reconstruction images.
         # G_A and G_B
         self.set_requires_grad([self.netD_A, self.netD_B], False)  # Ds require no gradients when optimizing Gs
-        self.set_requires_grad([self.netD_A_G, self.netD_B_G], False)  # Ds require no gradients when optimizing Gs
-        self.set_requires_grad([self.netD_A_L, self.netD_B_L], False)  # Ds require no gradients when optimizing Gs
         self.optimizer_G.zero_grad()  # set G_A and G_B's gradients to zero
         self.backward_G(epoch)             # calculate gradients for G_A and G_B
         self.optimizer_G.step()       # update G_A and G_B's weights
         # D_A and D_B
         self.set_requires_grad([self.netD_A, self.netD_B], True)
-        self.set_requires_grad([self.netD_A_G, self.netD_B_G], True)
-        self.set_requires_grad([self.netD_A_L, self.netD_B_L], True)
         self.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
         self.backward_D_A()      # calculate gradients for D_A
         self.backward_D_B()      # calculate graidents for D_B
-        #self.backward_D_A_G()      # calculate gradients for D_A
-        #self.backward_D_B_G()      # calculate graidents for D_B
-        #self.backward_D_A_L()      # calculate gradients for D_A
-        #self.backward_D_B_L()      # calculate graidents for D_B
         self.optimizer_D.step()  # update D_A and D_B's weights

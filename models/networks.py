@@ -154,6 +154,8 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif netG == 'cascade':
+        net = cascaded_model(input_nc, output_nc , 256)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -619,3 +621,274 @@ class PixelDiscriminator(nn.Module):
     def forward(self, input):
         """Standard forward."""
         return self.net(input)
+
+
+
+
+class LayerNorm(nn.Module):
+
+    def __init__(self, num_features, eps=1e-12, affine=True):
+        super(LayerNorm, self).__init__()
+        self.num_features = num_features
+        self.affine = affine
+        self.eps = eps
+
+        if self.affine:
+            self.gamma = nn.Parameter(torch.ones(num_features))
+            self.beta = nn.Parameter(torch.zeros(num_features))
+
+    def forward(self, x):
+
+        shape = [-1] + [1] * (x.dim() - 1)
+        mean = x.view(x.size(0), -1).mean(1).view(*shape)
+        std = x.view(x.size(0), -1).std(1).view(*shape)
+
+        y = (x - mean) / (std + self.eps)
+        if self.affine:
+            shape = [1, -1] + [1] * (x.dim() - 2)
+            y = self.gamma.view(*shape) * y + self.beta.view(*shape)
+        return y
+
+
+class cascaded_model(nn.Module):
+    def __init__(self, input_nc, output_nc, res):
+        super(cascaded_model, self).__init__()
+        self.res = res
+        self.count=0
+        self.D_m=[]
+        self.findD_m(res)
+        D_m = self.D_m
+        self.conv1=nn.Conv2d(input_nc, D_m[1], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv1.weight, gain=1)
+
+        nn.init.constant_(self.conv1.bias, 0)
+        self.lay1=LayerNorm(D_m[1], eps=1e-12, affine=True)
+        
+        self.relu1=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        self.conv11=nn.Conv2d(D_m[1], D_m[1], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv11.weight, gain=1)
+
+        nn.init.constant_(self.conv11.bias, 0)
+        self.lay11=LayerNorm(D_m[1], eps=1e-12, affine=True)
+        
+        self.relu11=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        #Layer2
+        
+        self.conv2=nn.Conv2d(D_m[1]+input_nc, D_m[2], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv2.weight, gain=1)
+#        nn.init.constant(self.conv2.weight, 1)
+        nn.init.constant_(self.conv2.bias, 0)
+        self.lay2=LayerNorm(D_m[2], eps=1e-12, affine=True)
+#        self.lay2=nn.BatchNorm2d(D_m[2])
+        self.relu2=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        self.conv22=nn.Conv2d(D_m[2], D_m[2], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv22.weight, gain=1)
+#        nn.init.constant(self.conv22.weight, 1)
+        nn.init.constant_(self.conv22.bias, 0)
+        self.lay22=LayerNorm(D_m[2], eps=1e-12, affine=True)
+#        self.lay2=nn.BatchNorm2d(D_m[2])
+        self.relu22=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        
+        #layer 3
+        
+        self.conv3=nn.Conv2d(D_m[2]+input_nc, D_m[3], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv3.weight, gain=1)
+#        nn.init.constant(self.conv3.weight,1)
+        nn.init.constant_(self.conv3.bias, 0)
+        self.lay3=LayerNorm(D_m[3], eps=1e-12, affine=True)
+#        self.lay3=nn.BatchNorm2d(D_m[3])
+        self.relu3=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        self.conv33=nn.Conv2d(D_m[3], D_m[3], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv33.weight,gain=1)
+        nn.init.constant_(self.conv33.bias, 0)
+        self.lay33=LayerNorm(D_m[3], eps=1e-12, affine=True)
+#        self.lay3=nn.BatchNorm2d(D_m[3])
+        self.relu33=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+               
+        #layer4
+                
+        self.conv4=nn.Conv2d(D_m[3]+input_nc, D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv4.weight,gain=1)
+        nn.init.constant_(self.conv4.bias, 0)
+        self.lay4=LayerNorm(D_m[4], eps=1e-12, affine=True)
+#        self.lay4=nn.BatchNorm2d(D_m[4])
+        self.relu4=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        self.conv44=nn.Conv2d(D_m[4], D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv44.weight,gain=1)
+        nn.init.constant_(self.conv44.bias, 0)
+        self.lay44=LayerNorm(D_m[4], eps=1e-12, affine=True)
+#        self.lay4=nn.BatchNorm2d(D_m[4])
+        self.relu44=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        #layers5 
+        
+        self.conv5=nn.Conv2d(D_m[4]+input_nc, D_m[5], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv5.weight, gain=1)
+        nn.init.constant_(self.conv5.bias, 0)
+        self.lay5=LayerNorm(D_m[5], eps=1e-12, affine=True)
+#        self.lay5=nn.BatchNorm2d(D_m[5])
+        self.relu5=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        self.conv55=nn.Conv2d(D_m[5], D_m[5], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv55.weight, gain=1)
+        nn.init.constant_(self.conv55.bias, 0)
+        self.lay55=LayerNorm(D_m[5], eps=1e-12, affine=True)
+#        self.lay5=nn.BatchNorm2d(D_m[5])
+        self.relu55=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        #layer 6
+        
+        self.conv6=nn.Conv2d(D_m[5]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv6.weight, gain=1)
+        nn.init.constant_(self.conv6.bias, 0)
+        self.lay6=LayerNorm(D_m[6], eps=1e-12, affine=True)
+#        self.lay6=nn.BatchNorm2d(D_m[6])
+        self.relu6=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        self.conv66=nn.Conv2d(D_m[6], D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv66.weight, gain=1)
+        nn.init.constant_(self.conv66.bias, 0)
+        self.lay66=LayerNorm(D_m[6], eps=1e-12, affine=True)
+#        self.lay6=nn.BatchNorm2d(D_m[6])
+        self.relu66=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        #layer7
+        self.conv7=nn.Conv2d(D_m[6]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv7.weight, gain=1)
+        nn.init.constant_(self.conv7.bias, 0)
+        self.lay7=LayerNorm(D_m[6], eps=1e-12, affine=True)
+#        self.lay6=nn.BatchNorm2d(D_m[6])
+        self.relu7=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        self.conv77=nn.Conv2d(D_m[6], D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
+        nn.init.xavier_uniform_(self.conv77.weight, gain=1)
+        nn.init.constant_(self.conv77.bias, 0)
+        self.lay77=LayerNorm(D_m[6], eps=1e-12, affine=True)
+#        self.lay6=nn.BatchNorm2d(D_m[6])
+        self.relu77=nn.LeakyReLU(negative_slope=0.2,inplace=True)
+        
+        self.conv8=nn.Conv2d(D_m[6], output_nc, kernel_size=1, stride=1, padding=0,bias=True)
+        nn.init.xavier_uniform_(self.conv8.weight, gain=1)
+        nn.init.constant_(self.conv8.bias, 0)
+    def forward(self, label):
+        
+        self.D = []
+        self.count = 0
+        
+        self.recursive_img(label, self.res)
+        
+        out1= self.conv1(self.D[1])
+        L1=self.lay1(out1)
+        out2= self.relu1(L1)
+        
+        out11= self.conv11(out2)
+        L11=self.lay11(out11)
+        out22= self.relu11(L11)
+        m = nn.functional.interpolate(out22, size=(self.D[1].size(3)*2,self.D[1].size(3)*2), mode='bilinear',align_corners=False)    
+        img1 = torch.cat((m, self.D[2]),1) 
+       
+        
+        out3= self.conv2(img1)
+        L2=self.lay2(out3)
+        out4= self.relu2(L2)
+        
+        out33= self.conv22(out4)
+        L22=self.lay22(out33)
+        out44= self.relu22(L22)
+        
+        m = nn.Upsample(size=(self.D[2].size(3)*2, self.D[2].size(3)*2), mode='bilinear')
+        
+        img2 = torch.cat((m(out44), self.D[3]),1)
+        
+        out5= self.conv3(img2)
+        L3=self.lay3(out5)
+        out6= self.relu3(L3)
+        
+        out55= self.conv33(out6)
+        L33=self.lay33(out55)
+        out66= self.relu33(L33)
+        
+        m = nn.Upsample(size=(self.D[3].size(3)*2, self.D[3].size(3)*2), mode='bilinear')
+        
+        img3 = torch.cat((m(out66), self.D[4]),1)
+        
+        out7= self.conv4(img3)
+        L4=self.lay4(out7)
+        out8= self.relu4(L4)
+        
+        out77= self.conv44(out8)
+        L44=self.lay44(out77)
+        out88= self.relu44(L44)
+
+        m = nn.Upsample(size=(self.D[4].size(3)*2, self.D[4].size(3)*2), mode='bilinear')
+        
+        img4 = torch.cat((m(out88), self.D[5]),1)        
+        
+        out9= self.conv5(img4)
+        L5=self.lay5(out9)
+        out10= self.relu5(L5)
+        
+        out99= self.conv55(out10)
+        L55=self.lay55(out99)
+        out110= self.relu55(L55)
+#        L5=self.lay5(out10)
+        
+        m = nn.Upsample(size=(self.D[5].size(3)*2, self.D[5].size(3)*2),mode='bilinear')
+        
+        img5 = torch.cat((m(out110), self.D[6]),1)
+               
+        out11= self.conv6(img5)
+        L6=self.lay6(out11)
+        out12= self.relu6(L6)
+        
+        out111= self.conv66(out12)
+        L66=self.lay66(out111)
+        out112= self.relu66(L66)
+        
+        m = nn.Upsample(size=(self.D[6].size(3)*2, self.D[6].size(3)*2),mode='bilinear')
+        
+        img6 = torch.cat((m(out112), label),1)       
+         
+        out13= self.conv7(img6)
+        L7=self.lay7(out13)
+        out14= self.relu7(L7)
+        
+        out113= self.conv77(out14)
+        L77=self.lay77(out113)
+        out114= self.relu77(L77)
+        
+        out15= self.conv8(out114)
+        
+        #out15=(out15+1.0)/2.0*255.0
+        
+        out16,out17,out18=torch.chunk(out15.permute(1,0,2,3),3,0)
+        out=torch.cat((out16,out17,out18),1)
+
+        return out
+
+    def recursive_img(self, label, res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
+    #    #M_low will start from 4x8 to resx2*res
+        if res == 4:
+            downsampled = label #torch.unsqueeze(torch.from_numpy(label).float().permute(2,0,1), dim=0)
+        else:
+            max1=nn.AvgPool2d(kernel_size=2, padding=0, stride=2)
+            downsampled=max1(label)
+            img = self.recursive_img(downsampled, res//2)
+        self.D.insert(self.count, downsampled)
+        self.count+=1
+        return downsampled  
+
+    def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
+        dim=128 if res>=128 else 256
+        if res != 4:
+            img = self.findD_m(res//2)
+        self.D_m.insert(self.count, dim)
+        self.count+=1
+        return res 
+
