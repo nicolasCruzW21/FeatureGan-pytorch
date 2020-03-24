@@ -265,7 +265,7 @@ class FeatureLoss(nn.Module):
         E1=self.compute_error(out7_r,out7_f)/self.coef1#/1.6
         E2=self.compute_error(out14_r,out14_f)/self.coef2#/2.3
         E3=self.compute_error(out23_r,out23_f)/self.coef3#/1.8
-        E4=self.compute_error(out32_f,out32_f)/self.coef4#/2.8
+        E4=self.compute_error(out32_r,out32_f)/self.coef4#/2.8
         Total_loss=max(E1+E2+E3+E4,0)
         return Total_loss
 
@@ -1036,5 +1036,5 @@ class VGG19(nn.Module):
         out35=self.conv16(out34)
         out36=self.relu16(out35)
         out37=self.max5(out36)
-        return out7, out14, out23, out32                     #Add appropriate outputs
+        return out5, out10, out20, out30                     #Add appropriate outputs
 
