@@ -99,7 +99,7 @@ class CycleGANModel(BaseModel):
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
-            self.criterionFeature = networks.FeatureLoss(80*4 , 90*4 , 220*4 , 13*4).to(self.device)  # define GAN loss.
+            self.criterionFeature = networks.FeatureLoss(80*4 , 90*4 , 220*4 , 13*5).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
@@ -113,7 +113,7 @@ class CycleGANModel(BaseModel):
             self.optimizers.append(self.optimizer_D)
             
             self.aa=np.array([123.6800, 116.7790, 103.9390]).reshape((1,1,1,3))
-            self.bb=torch.autograd.variable(torch.from_numpy(aa).float().permute(0,3,1,2).cuda())
+            self.bb=torch.autograd.variable(torch.from_numpy(self.aa).float().permute(0,3,1,2).cuda())
 
 
     def set_input(self, input):
@@ -150,7 +150,7 @@ class CycleGANModel(BaseModel):
 
     def calculate_Features(self, image):
         generated = (image+1.0)/2.0*255.0
-        out7_r, out14_r, out23_r, out32_r =self.netF(image-self.bb)
+        out7, out14, out23, out32 =self.netF(generated-self.bb)
         return out7, out14, out23, out32
 
     def backward_D_basic(self, netD, real, fake):
