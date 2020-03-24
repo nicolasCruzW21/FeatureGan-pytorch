@@ -691,44 +691,24 @@ class PixelDiscriminator(nn.Module):
 
 
 
-class LayerNorm(nn.Module):
-
-    def __init__(self, num_features, eps=1e-12, affine=True):
-        super(LayerNorm, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-
-        if self.affine:
-            self.gamma = nn.Parameter(torch.ones(num_features))
-            self.beta = nn.Parameter(torch.zeros(num_features))
-
-    def forward(self, x):
-
-        shape = [-1] + [1] * (x.dim() - 1)
-        mean = x.view(x.size(0), -1).mean(1).view(*shape)
-        std = x.view(x.size(0), -1).std(1).view(*shape)
-
-        y = (x - mean) / (std + self.eps)
-        if self.affine:
-            shape = [1, -1] + [1] * (x.dim() - 2)
-            y = self.gamma.view(*shape) * y + self.beta.view(*shape)
-        return y
-
-
 class cascaded_model(nn.Module):
     def __init__(self, input_nc, output_nc, res):
         super(cascaded_model, self).__init__()
         self.res = res
         self.count=0
         self.D_m=[]
+        self.resVec = []
         self.findD_m(res)
         D_m = self.D_m
+        res = self.resVec
         self.conv1=nn.Conv2d(input_nc, D_m[1], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv1.weight, gain=1)
 
         nn.init.constant_(self.conv1.bias, 0)
-        self.lay1=LayerNorm(D_m[1], eps=1e-12, affine=True)
+
+        self.lay1 = torch.nn.LayerNorm(normalized_shape =(D_m[0], res[0], res[0]), eps=1e-12, elementwise_affine=True)
+
+        #self.lay1=LayerNorm(D_m[1], eps=1e-12, affine=True)
         
         self.relu1=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -736,7 +716,7 @@ class cascaded_model(nn.Module):
         nn.init.xavier_uniform_(self.conv11.weight, gain=1)
 
         nn.init.constant_(self.conv11.bias, 0)
-        self.lay11=LayerNorm(D_m[1], eps=1e-12, affine=True)
+        self.lay11=torch.nn.LayerNorm(normalized_shape =(D_m[0], res[0], res[0]), eps=1e-12, elementwise_affine=True)
         
         self.relu11=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -746,7 +726,7 @@ class cascaded_model(nn.Module):
         nn.init.xavier_uniform_(self.conv2.weight, gain=1)
 #        nn.init.constant(self.conv2.weight, 1)
         nn.init.constant_(self.conv2.bias, 0)
-        self.lay2=LayerNorm(D_m[2], eps=1e-12, affine=True)
+        self.lay2=torch.nn.LayerNorm(normalized_shape =(D_m[1], res[1], res[1]), eps=1e-12, elementwise_affine=True)
 #        self.lay2=nn.BatchNorm2d(D_m[2])
         self.relu2=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -754,7 +734,7 @@ class cascaded_model(nn.Module):
         nn.init.xavier_uniform_(self.conv22.weight, gain=1)
 #        nn.init.constant(self.conv22.weight, 1)
         nn.init.constant_(self.conv22.bias, 0)
-        self.lay22=LayerNorm(D_m[2], eps=1e-12, affine=True)
+        self.lay22=torch.nn.LayerNorm(normalized_shape =(D_m[1], res[1], res[1]), eps=1e-12, elementwise_affine=True)
 #        self.lay2=nn.BatchNorm2d(D_m[2])
         self.relu22=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -765,14 +745,14 @@ class cascaded_model(nn.Module):
         nn.init.xavier_uniform_(self.conv3.weight, gain=1)
 #        nn.init.constant(self.conv3.weight,1)
         nn.init.constant_(self.conv3.bias, 0)
-        self.lay3=LayerNorm(D_m[3], eps=1e-12, affine=True)
+        self.lay3=torch.nn.LayerNorm(normalized_shape =(D_m[2], res[2], res[2]), eps=1e-12, elementwise_affine=True)
 #        self.lay3=nn.BatchNorm2d(D_m[3])
         self.relu3=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv33=nn.Conv2d(D_m[3], D_m[3], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv33.weight,gain=1)
         nn.init.constant_(self.conv33.bias, 0)
-        self.lay33=LayerNorm(D_m[3], eps=1e-12, affine=True)
+        self.lay33=torch.nn.LayerNorm(normalized_shape =(D_m[2], res[2], res[2]), eps=1e-12, elementwise_affine=True)
 #        self.lay3=nn.BatchNorm2d(D_m[3])
         self.relu33=nn.LeakyReLU(negative_slope=0.2,inplace=True)
                
@@ -781,14 +761,14 @@ class cascaded_model(nn.Module):
         self.conv4=nn.Conv2d(D_m[3]+input_nc, D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv4.weight,gain=1)
         nn.init.constant_(self.conv4.bias, 0)
-        self.lay4=LayerNorm(D_m[4], eps=1e-12, affine=True)
+        self.lay4=torch.nn.LayerNorm(normalized_shape =(D_m[3], res[3], res[3]), eps=1e-12, elementwise_affine=True)
 #        self.lay4=nn.BatchNorm2d(D_m[4])
         self.relu4=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv44=nn.Conv2d(D_m[4], D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv44.weight,gain=1)
         nn.init.constant_(self.conv44.bias, 0)
-        self.lay44=LayerNorm(D_m[4], eps=1e-12, affine=True)
+        self.lay44=torch.nn.LayerNorm(normalized_shape =(D_m[3], res[3], res[3]), eps=1e-12, elementwise_affine=True)
 #        self.lay4=nn.BatchNorm2d(D_m[4])
         self.relu44=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -797,14 +777,14 @@ class cascaded_model(nn.Module):
         self.conv5=nn.Conv2d(D_m[4]+input_nc, D_m[5], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv5.weight, gain=1)
         nn.init.constant_(self.conv5.bias, 0)
-        self.lay5=LayerNorm(D_m[5], eps=1e-12, affine=True)
+        self.lay5=torch.nn.LayerNorm(normalized_shape =(D_m[5], res[4], res[4]), eps=1e-12, elementwise_affine=True)
 #        self.lay5=nn.BatchNorm2d(D_m[5])
         self.relu5=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv55=nn.Conv2d(D_m[5], D_m[5], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv55.weight, gain=1)
         nn.init.constant_(self.conv55.bias, 0)
-        self.lay55=LayerNorm(D_m[5], eps=1e-12, affine=True)
+        self.lay55=torch.nn.LayerNorm(normalized_shape =(D_m[5], res[4], res[4]), eps=1e-12, elementwise_affine=True)
 #        self.lay5=nn.BatchNorm2d(D_m[5])
         self.relu55=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -813,14 +793,14 @@ class cascaded_model(nn.Module):
         self.conv6=nn.Conv2d(D_m[5]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv6.weight, gain=1)
         nn.init.constant_(self.conv6.bias, 0)
-        self.lay6=LayerNorm(D_m[6], eps=1e-12, affine=True)
+        self.lay6=torch.nn.LayerNorm(normalized_shape =(D_m[5], res[5], res[5]), eps=1e-12, elementwise_affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu6=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv66=nn.Conv2d(D_m[6], D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv66.weight, gain=1)
         nn.init.constant_(self.conv66.bias, 0)
-        self.lay66=LayerNorm(D_m[6], eps=1e-12, affine=True)
+        self.lay66=torch.nn.LayerNorm(normalized_shape =(D_m[5], res[5], res[5]), eps=1e-12, elementwise_affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu66=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -828,14 +808,14 @@ class cascaded_model(nn.Module):
         self.conv7=nn.Conv2d(D_m[6]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv7.weight, gain=1)
         nn.init.constant_(self.conv7.bias, 0)
-        self.lay7=LayerNorm(D_m[6], eps=1e-12, affine=True)
+        self.lay7=torch.nn.LayerNorm(normalized_shape =(D_m[6], res[6], res[6]), eps=1e-12, elementwise_affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu7=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv77=nn.Conv2d(D_m[6], D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv77.weight, gain=1)
         nn.init.constant_(self.conv77.bias, 0)
-        self.lay77=LayerNorm(D_m[6], eps=1e-12, affine=True)
+        self.lay77=torch.nn.LayerNorm(normalized_shape =(D_m[6], res[6], res[6]), eps=1e-12, elementwise_affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu77=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -854,6 +834,7 @@ class cascaded_model(nn.Module):
         out2= self.relu1(L1)
         
         out11= self.conv11(out2)
+        
         L11=self.lay11(out11)
         out22= self.relu11(L11)
         m = nn.functional.interpolate(out22, size=(self.D[1].size(3)*2,self.D[1].size(3)*2), mode='bilinear',align_corners=False)    
@@ -955,6 +936,7 @@ class cascaded_model(nn.Module):
         if res != 4:
             img = self.findD_m(res//2)
         self.D_m.insert(self.count, dim)
+        self.resVec.insert(self.count, res)
         self.count+=1
         return res 
 
