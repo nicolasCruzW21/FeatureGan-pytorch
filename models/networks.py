@@ -3,8 +3,8 @@ import torch.nn as nn
 from torch.nn import init
 import functools
 from torch.optim import lr_scheduler
-
-
+import os, scipy.io
+import numpy as np
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -160,6 +160,38 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
 
+def vggnet(pretrained=False, model_root=None, **kwargs):
+    model = VGG19(**kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['alexnet'], model_root))
+    return model
+
+def define_F(gpu_ids=[]):
+    Net=vggnet(pretrained=False, model_root=None)
+
+    Net=Net.to(gpu_ids[0])
+
+    vgg_rawnet=scipy.io.loadmat('imagenet-vgg-verydeep-19.mat')
+
+    vgg_layers=vgg_rawnet['layers'][0]
+
+    #Weight initialization according to the pretrained VGG Very deep 19 network Network weights
+
+    layers=[0, 2, 5, 7, 10, 12, 14, 16, 19, 21, 23, 25, 28, 30, 32, 34]
+
+    att=['conv1', 'conv2', 'conv3', 'conv4', 'conv5', 'conv6', 'conv7', 'conv8', 'conv9', 'conv10', 'conv11', 'conv12', 'conv13', 'conv14', 'conv15', 'conv16']
+
+    S=[64, 64, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512, 512, 512, 512, 512]
+    for L in range(16):
+        getattr(Net, att[L]).weight=nn.Parameter(torch.from_numpy(vgg_layers[layers[L]][0][0][2][0][0]).permute(3,2,0,1).cuda())
+        getattr(Net, att[L]).bias=nn.Parameter(torch.from_numpy(vgg_layers[layers[L]][0][0][2][0][1]).view(S[L]).cuda())
+    return Net.eval()
+
+
+
+
+
+
 
 def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal', init_gain=0.02, gpu_ids=[], alternate = False):
     """Create a discriminator
@@ -208,6 +240,40 @@ def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal'
 ##############################################################################
 # Classes
 ##############################################################################
+
+class FeatureLoss(nn.Module):
+    """Define different GAN objectives.
+
+    The GANLoss class abstracts away the need to create the target label tensor
+    that has the same size as the input.
+    """
+
+    def __init__(self, coef1, coef2, coef3, coef4, coef5):
+        """ Initialize the FeatureLoss class.
+        
+        """
+        self.coef1 = coef1
+        self.coef2 = coef2
+        self.coef3 = coef3
+        self.coef4 = coef4
+        self.coef5 = coef5
+
+        super(FeatureLoss, self).__init__()
+    def compute_error(self, R, F):
+        E= torch.mean(torch.abs(R-F))
+        return E
+
+    def __call__(self, out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f):
+        E1=self.compute_error(out3_r,out3_f)/self.coef1#/1.6
+        E2=self.compute_error(out8_r,out8_f)/self.coef2#/2.3
+        E3=self.compute_error(out13_r,out13_f)/self.coef3#/1.8
+        E4=self.compute_error(out22_r,out22_f)/self.coef4#/2.8
+        E5=self.compute_error(out33_r,out33_f)/self.coef5#*10/0.8
+        Total_loss=max(E1+E2+E3+E4+E5,0)
+        return Total_loss
+
+
+
 class GANLoss(nn.Module):
     """Define different GAN objectives.
 
@@ -891,4 +957,105 @@ class cascaded_model(nn.Module):
         self.D_m.insert(self.count, dim)
         self.count+=1
         return res 
+
+
+class VGG19(nn.Module):
+
+    def __init__(self):
+        super(VGG19, self).__init__()
+        self.conv1=nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=True)
+        self.relu1=nn.ReLU(inplace=True)
+            
+        self.conv2=nn.Conv2d(64,64, kernel_size=3, stride=1, padding=1, bias=True)
+        self.relu2=nn.ReLU(inplace=True)
+        self.max1=nn.AvgPool2d(kernel_size=2, stride=2)
+            
+        self.conv3=nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=True)
+        self.relu3=nn.ReLU(inplace=True)
+            
+        self.conv4=nn.Conv2d(128, 128,  kernel_size=3, padding=1, bias=True)
+        self.relu4=nn.ReLU(inplace=True)
+        self.max2=nn.AvgPool2d(kernel_size=2, stride=2)
+            
+        self.conv5=nn.Conv2d(128, 256,  kernel_size=3, padding=1, bias=True)
+        self.relu5=nn.ReLU(inplace=True)
+            
+        self.conv6=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
+        self.relu6=nn.ReLU(inplace=True)
+            
+        self.conv7=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
+        self.relu7=nn.ReLU(inplace=True)
+            
+        self.conv8=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
+        self.relu8=nn.ReLU(inplace=True)
+        self.max3=nn.AvgPool2d(kernel_size=2, stride=2)
+            
+        self.conv9=nn.Conv2d(256, 512,  kernel_size=3, padding=1, bias=True)
+        self.relu9=nn.ReLU(inplace=True)
+            
+        self.conv10=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.relu10=nn.ReLU(inplace=True)
+            
+        self.conv11=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.relu11=nn.ReLU(inplace=True)
+            
+        self.conv12=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.relu12=nn.ReLU(inplace=True)
+        self.max4=nn.AvgPool2d(kernel_size=2, stride=2)
+            
+        self.conv13=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.relu13=nn.ReLU(inplace=True)
+            
+        self.conv14=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.relu14=nn.ReLU(inplace=True)
+            
+        self.conv15=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.relu15=nn.ReLU(inplace=True)
+            
+        self.conv16=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.relu16=nn.ReLU(inplace=True)
+        self.max5=nn.AvgPool2d(kernel_size=2, stride=2)
+
+    def forward(self, x):
+        
+        out1= self.conv1(x)
+        out2= self.relu1(out1)
+            
+        out3= self.conv2(out2)
+        out4=self.relu2(out3)
+        out5=self.max1(out4)
+            
+        out6=self.conv3(out5)
+        out7=self.relu3(out6)            
+        out8=self.conv4(out7)
+        out9=self.relu4(out8)
+        out10=self.max2(out9)          
+        out11=self.conv5(out10)
+        out12=self.relu5(out11)           
+        out13=self.conv6(out12)
+        out14=self.relu6(out13)            
+        out15=self.conv7(out14)
+        out16=self.relu7(out15)            
+        out17=self.conv8(out16)
+        out18=self.relu8(out17)
+        out19=self.max3(out18)           
+        out20=self.conv9(out19)
+        out21=self.relu9(out20)            
+        out22=self.conv10(out21)
+        out23=self.relu10(out22)            
+        out24=self.conv11(out23)
+        out25=self.relu11(out24)           
+        out26=self.conv12(out25)
+        out27=self.relu12(out26)
+        out28=self.max4(out27)           
+        out29=self.conv13(out28)
+        out30=self.relu13(out29)           
+        out31=self.conv14(out30)
+        out32=self.relu14(out31)            
+        out33=self.conv15(out32)
+        out34=self.relu15(out33)            
+        out35=self.conv16(out34)
+        out36=self.relu16(out35)
+        out37=self.max5(out36)
+        return out4, out9, out14, out23, out32, out7                     #Add appropriate outputs
 
