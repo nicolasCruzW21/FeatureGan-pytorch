@@ -1039,5 +1039,5 @@ class VGG19(nn.Module):
         out35=self.conv16(out34)
         out36=self.relu16(out35)
         out37=self.max5(out36)
-        return out4, out9, out14, out23, out32, out7                     #Add appropriate outputs
+        return out4, out7, out9, out14, out23, out32                     #Add appropriate outputs
 
