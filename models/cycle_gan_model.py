@@ -99,7 +99,7 @@ class CycleGANModel(BaseModel):
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
-            self.criterionFeature = networks.FeatureLoss(300 , 300 , 200 , 46 , 12.5).to(self.device)  # define GAN loss.
+            self.criterionFeature = networks.FeatureLoss(200 , 100 , 50 , 12.5).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
@@ -149,9 +149,9 @@ class CycleGANModel(BaseModel):
         bb=torch.autograd.variable(torch.from_numpy(aa).float().permute(0,3,1,2).cuda())
         real = (real+1.0)/2.0*255.0
         generated = (generated+1.0)/2.0*255.0
-        out3_r, out8_r, out13_r, out22_r, out33_r, out7r =self.netF(real-bb)
-        out3_f, out8_f, out13_f, out22_f, out33_f, out7f =self.netF(generated-bb)
-        return out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f
+        out7_r, out14_r, out23_r, out32_r =self.netF(real-bb)
+        out7_f, out14_f, out23_f, out32_f =self.netF(generated-bb)
+        return out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -204,16 +204,16 @@ class CycleGANModel(BaseModel):
             self.loss_idt_A = 0
             self.loss_idt_B = 0
 
-        out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f = self.calculate_Features(self.fake_B,self.real_A)
-        self.loss_F_A = 0.5 * self.criterionFeature(out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f)
-        out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f = self.calculate_Features(self.rec_B,self.fake_A)
-        self.loss_F_A += 0.5 * self.criterionFeature(out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f)
+        out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f  = self.calculate_Features(self.fake_B,self.real_A)
+        self.loss_F_A = 0.5 * self.criterionFeature(out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f)
+        out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f = self.calculate_Features(self.rec_B,self.fake_A)
+        self.loss_F_A += 0.5 * self.criterionFeature(out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f)
 
 
-        out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f = self.calculate_Features(self.fake_A,self.real_B)
-        self.loss_F_B = 0.5 * self.criterionFeature(out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f)
-        out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f = self.calculate_Features(self.rec_A,self.fake_B)
-        self.loss_F_B += 0.5 * self.criterionFeature(out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f)
+        out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f = self.calculate_Features(self.fake_A,self.real_B)
+        self.loss_F_B = 0.5 * self.criterionFeature(out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f)
+        out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f = self.calculate_Features(self.rec_A,self.fake_B)
+        self.loss_F_B += 0.5 * self.criterionFeature(out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f)
 
         #self.loss_F_A = 0.5 * self.criterionFeature(self.calculate_Features(self.fake_B,self.real_A)) + 0.5 * self.criterionFeature(self.calculate_Features(self.rec_B,self.fake_A))
         #self.loss_F_B = 0.5 * self.criterionFeature(self.calculate_Features(self.fake_A,self.real_B)) + 0.5 * self.criterionFeature(self.calculate_Features(self.rec_A,self.fake_B))

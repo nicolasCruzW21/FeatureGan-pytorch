@@ -248,7 +248,7 @@ class FeatureLoss(nn.Module):
     that has the same size as the input.
     """
 
-    def __init__(self, coef1, coef2, coef3, coef4, coef5):
+    def __init__(self, coef1, coef2, coef3, coef4):
         """ Initialize the FeatureLoss class.
         
         """
@@ -256,20 +256,17 @@ class FeatureLoss(nn.Module):
         self.coef2 = coef2
         self.coef3 = coef3
         self.coef4 = coef4
-        self.coef5 = coef5
-
         super(FeatureLoss, self).__init__()
     def compute_error(self, R, F):
         E= torch.mean(torch.abs(R-F))
         return E
 
-    def __call__(self, out3_r, out8_r, out13_r, out22_r, out33_r, out7r, out3_f, out8_f, out13_f, out22_f, out33_f, out7f):
-        E1=self.compute_error(out3_r,out3_f)/self.coef1#/1.6
-        E2=self.compute_error(out8_r,out8_f)/self.coef2#/2.3
-        E3=self.compute_error(out13_r,out13_f)/self.coef3#/1.8
-        E4=self.compute_error(out22_r,out22_f)/self.coef4#/2.8
-        E5=self.compute_error(out33_r,out33_f)/self.coef5#*10/0.8
-        Total_loss=max(E1+E2+E3+E4+E5,0)
+    def __call__(self, out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f):
+        E1=self.compute_error(out7_r,out7_f)/self.coef1#/1.6
+        E2=self.compute_error(out14_r,out14_f)/self.coef2#/2.3
+        E3=self.compute_error(out23_r,out23_f)/self.coef3#/1.8
+        E4=self.compute_error(out32_f,out32_f)/self.coef4#/2.8
+        Total_loss=max(E1+E2+E3+E4,0)
         return Total_loss
 
 
@@ -1039,5 +1036,5 @@ class VGG19(nn.Module):
         out35=self.conv16(out34)
         out36=self.relu16(out35)
         out37=self.max5(out36)
-        return out4, out7, out9, out14, out23, out32                     #Add appropriate outputs
+        return out7, out14, out23, out32                     #Add appropriate outputs
 
