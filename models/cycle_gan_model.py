@@ -8,6 +8,7 @@ import torchvision.transforms as transforms
 from util import util
 from PIL import Image
 import numpy as np
+import time
 class CycleGANModel(BaseModel):
     """
     This class implements the CycleGAN model, for learning image-to-image translation without paired data.
@@ -99,7 +100,7 @@ class CycleGANModel(BaseModel):
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
-            self.criterionFeature = networks.FeatureLoss(80*4 , 90*4 , 220*4 , 13*5).to(self.device)  # define GAN loss.
+            self.criterionFeature = networks.FeatureLoss(60*4 , 50*4 , 30*4 , 0.2*4).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
@@ -132,6 +133,7 @@ class CycleGANModel(BaseModel):
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         if self.isTrain:
+
             self.fake_B = self.netG_A(self.real_A) # G_A(A)
             PIL_fake_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_B)))
             fake_B_Jittered = util.im2tensor(np.array(PIL_fake_B_Jitter))
@@ -148,10 +150,6 @@ class CycleGANModel(BaseModel):
             self.fake_A = self.netG_B(self.real_B)# G_B(B)
             self.rec_B = self.netG_A(self.fake_A)# G_A(G_B(B))
 
-    def calculate_Features(self, image):
-        generated = (image+1.0)/2.0*255.0
-        out7, out14, out23, out32 =self.netF(generated-self.bb)
-        return out7, out14, out23, out32
 
     def backward_D_basic(self, netD, real, fake):
         """Calculate GAN loss for the discriminator
@@ -185,6 +183,59 @@ class CycleGANModel(BaseModel):
         fake_A = self.fake_A_pool.query(self.fake_A)
         self.loss_D_B = self.backward_D_basic(self.netD_B, self.real_A, fake_A)
 
+    def remove_background(self, image, label):
+        imageAux = image
+        label = label.squeeze(0)
+        image = image.squeeze(0)
+        R = 181 * 2.0 / 255.0
+        R = R - 1
+        G = 190 * 2.0 / 255.0
+        G = G - 1
+        B = 180 * 2.0 / 255.0
+        B = B - 1
+        aa = torch.ones([256,256]).cuda().float()
+
+        #R
+        aaa = aa*R
+        bb = label[0,:,:]
+        cc = torch.abs(bb - aaa)
+        gR = cc <0.00001
+     
+        #G
+        aaa = aa*G
+        bb = label[1,:,:]
+        cc = torch.abs(bb - aaa)
+        gG = cc <0.00001
+
+        #B
+        aaa = aa*B
+        bb = label[2,:,:]
+        cc = torch.abs(bb - aaa)
+        gB = cc <0.00001
+        gT = gR * gG * gB
+        #print("sum gT------------------",torch.sum(gT).cpu().float().detach().numpy())
+        ngT = ~gT
+        #print("sum ngT------------------",torch.sum(ngT).cpu().float().detach().numpy())
+        
+        background = label * gT
+        foreground = image * ngT
+        no_back_image = background + foreground
+        no_back_image = no_back_image.unsqueeze(0)
+        #print(no_back_image.size())
+        #testImg = util.tensor2im(no_back_image)
+        #image_pil = Image.fromarray(testImg)
+        #image_pil.save("test.png")
+
+        #testImage = util.tensor2im(imageAux)
+        #testImage = Image.fromarray(testImage)
+        #testImage.save("testImage.png")
+        return no_back_image
+
+    def calculate_Features(self, image):
+        generated = (image+1.0)/2.0*255.0
+        out7, out14, out23, out32 =self.netF(generated-self.bb)
+        return out7, out14, out23, out32
+
     def backward_G(self,epoch):
         """Calculate the loss for generators G_A and G_B"""
         lambda_idt = self.opt.lambda_identity
@@ -204,24 +255,21 @@ class CycleGANModel(BaseModel):
             self.loss_idt_A = 0
             self.loss_idt_B = 0
 
-        out7_r_A, out14_r_A, out23_r_A, out32_r_A  = self.calculate_Features(self.real_A)
-        out7_f_B, out14_f_B, out23_f_B, out32_f_B  = self.calculate_Features(self.fake_B)
-        out7_f_A, out14_f_A, out23_f_A, out32_f_A  = self.calculate_Features(self.fake_A)
+        fake_A_no_Background = self.remove_background(self.fake_A, self.real_B)
+        rec_B_no_Background = self.remove_background(self.rec_B, self.real_B)
+
         out7_r_B, out14_r_B, out23_r_B, out32_r_B  = self.calculate_Features(self.real_B)
-        out7_rec_A, out14_rec_A, out23_rec_A, out32_rec_A  = self.calculate_Features(self.rec_A)
-        out7_rec_B, out14_rec_B, out23_rec_B, out32_rec_B  = self.calculate_Features(self.rec_B)
 
 
-
-        self.loss_F_A = 0.5 * self.criterionFeature(out7_f_B, out14_f_B, out23_f_B, out32_f_B, out7_r_A, out14_r_A, out23_r_A, out32_r_A)
-        self.loss_F_A += 0.5 * self.criterionFeature(out7_rec_A, out14_rec_A, out23_rec_A, out32_rec_A, out7_f_B, out14_f_B, out23_f_B, out32_f_B)
+        out7_f_A, out14_f_A, out23_f_A, out32_f_A  = self.calculate_Features(fake_A_no_Background)
 
 
-        self.loss_F_B = 0.5 * self.criterionFeature(out7_f_A, out14_f_A, out23_f_A, out32_f_A, out7_r_B, out14_r_B, out23_r_B, out32_r_B)
-        self.loss_F_B += 0.5 * self.criterionFeature(out7_rec_B, out14_rec_B, out23_rec_B, out32_rec_B, out7_f_A, out14_f_A, out23_f_A, out32_f_A)
+        out7_rec_B, out14_rec_B, out23_rec_B, out32_rec_B  = self.calculate_Features(rec_B_no_Background)
 
-        #self.loss_F_A = 0.5 * self.criterionFeature(self.calculate_Features(self.fake_B,self.real_A)) + 0.5 * self.criterionFeature(self.calculate_Features(self.rec_B,self.fake_A))
-        #self.loss_F_B = 0.5 * self.criterionFeature(self.calculate_Features(self.fake_A,self.real_B)) + 0.5 * self.criterionFeature(self.calculate_Features(self.rec_A,self.fake_B))
+
+        self.loss_F_B = self.criterionFeature(out7_r_B, out14_r_B, out23_r_B, out32_r_B, out7_f_A, out14_f_A, out23_f_A, out32_f_A)
+
+        self.loss_F_A = self.criterionFeature(out7_rec_B, out14_rec_B, out23_rec_B, out32_rec_B, out7_f_A, out14_f_A, out23_f_A, out32_f_A)
 
         # GAN loss D_A(G_A(A))
         self.loss_G_A = self.criterionGAN(self.netD_A(self.fake_B), True)

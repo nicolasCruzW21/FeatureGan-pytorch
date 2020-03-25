@@ -262,11 +262,20 @@ class FeatureLoss(nn.Module):
         return E
 
     def __call__(self, out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f):
-        E1=self.compute_error(out7_r,out7_f)/self.coef1#/1.6
-        E2=self.compute_error(out14_r,out14_f)/self.coef2#/2.3
+
+
+
+        E1=self.compute_error(out7_r,out7_f)#/1.6
+        E2=self.compute_error(out14_r,out14_f)#/2.3
         E3=self.compute_error(out23_r,out23_f)/self.coef3#/1.8
         E4=self.compute_error(out32_r,out32_f)/self.coef4#/2.8
-        Total_loss=max(E1+E2+E3+E4,0)
+        
+        #print("E1",E1.cpu().float().detach().numpy())
+        #print("E2",E2.cpu().float().detach().numpy())
+        #print("E3",E3.cpu().float().detach().numpy())
+        #print("E4",E4.cpu().float().detach().numpy())
+        
+        Total_loss=max(E1/self.coef1 + E2/self.coef2 + E3/self.coef3 + E4/self.coef4,0)
         return Total_loss
 
 
@@ -697,6 +706,7 @@ class cascaded_model(nn.Module):
         self.resVec = []
         self.findD_m(res)
         D_m = self.D_m
+        print("D_m------------------",D_m)
         res = self.resVec
         self.conv1=nn.Conv2d(input_nc, D_m[1], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.xavier_uniform_(self.conv1.weight, gain=1)
@@ -929,7 +939,7 @@ class cascaded_model(nn.Module):
         return downsampled  
 
     def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
-        dim=128 if res>=128 else 256
+        dim=16 if res>=128 else 32
         if res != 4:
             img = self.findD_m(res//2)
         self.D_m.insert(self.count, dim)
@@ -1036,5 +1046,5 @@ class VGG19(nn.Module):
         out35=self.conv16(out34)
         out36=self.relu16(out35)
         out37=self.max5(out36)
-        return out5, out10, out20, out30                     #Add appropriate outputs
+        return out7, out16, out25, out34                     #Add appropriate outputs
 
