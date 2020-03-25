@@ -939,7 +939,7 @@ class cascaded_model(nn.Module):
         return downsampled  
 
     def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
-        dim=16 if res>=128 else 32
+        dim=64 if res>=128 else 128
         if res != 4:
             img = self.findD_m(res//2)
         self.D_m.insert(self.count, dim)
