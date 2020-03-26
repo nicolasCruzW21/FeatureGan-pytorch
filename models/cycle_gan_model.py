@@ -75,9 +75,9 @@ class CycleGANModel(BaseModel):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
+        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, 'resnet_6blocks', opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, opt.netG, opt.norm,
+        self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, 'resnet_6blocks', opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
         #self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, 'cascade', opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
@@ -100,7 +100,7 @@ class CycleGANModel(BaseModel):
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
-            self.criterionFeature = networks.FeatureLoss(60*4 , 50*4 , 30*4 , 0.2*4).to(self.device)  # define GAN loss.
+            self.criterionFeature = networks.FeatureLoss(100*4*16 , 100*8 *8, 50*4 *8, 0.1*4*8).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
@@ -199,19 +199,19 @@ class CycleGANModel(BaseModel):
         aaa = aa*R
         bb = label[0,:,:]
         cc = torch.abs(bb - aaa)
-        gR = cc <0.00001
+        gR = cc <0.02
      
         #G
         aaa = aa*G
         bb = label[1,:,:]
         cc = torch.abs(bb - aaa)
-        gG = cc <0.00001
+        gG = cc <0.02
 
         #B
         aaa = aa*B
         bb = label[2,:,:]
         cc = torch.abs(bb - aaa)
-        gB = cc <0.00001
+        gB = cc <0.02
         gT = gR * gG * gB
         #print("sum gT------------------",torch.sum(gT).cpu().float().detach().numpy())
         ngT = ~gT

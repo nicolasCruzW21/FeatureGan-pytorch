@@ -267,8 +267,8 @@ class FeatureLoss(nn.Module):
 
         E1=self.compute_error(out7_r,out7_f)#/1.6
         E2=self.compute_error(out14_r,out14_f)#/2.3
-        E3=self.compute_error(out23_r,out23_f)/self.coef3#/1.8
-        E4=self.compute_error(out32_r,out32_f)/self.coef4#/2.8
+        E3=self.compute_error(out23_r,out23_f)#/1.8
+        E4=self.compute_error(out32_r,out32_f)#/2.8
         
         #print("E1",E1.cpu().float().detach().numpy())
         #print("E2",E2.cpu().float().detach().numpy())
@@ -939,7 +939,7 @@ class cascaded_model(nn.Module):
         return downsampled  
 
     def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
-        dim=64 if res>=128 else 128
+        dim=32 if res>=128 else 64
         if res != 4:
             img = self.findD_m(res//2)
         self.D_m.insert(self.count, dim)
