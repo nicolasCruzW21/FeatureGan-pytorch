@@ -9,6 +9,8 @@ from util import util
 from PIL import Image
 import numpy as np
 import time
+from random import randrange
+from statistics import mean
 class CycleGANModel(BaseModel):
     """
     This class implements the CycleGAN model, for learning image-to-image translation without paired data.
@@ -56,10 +58,13 @@ class CycleGANModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'D_B', 'G_B', 'cycle_B', 'idt_B', 'idt_A', 'F_A', 'F_B']
+        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'D_B', 'G_B', 'cycle_B', 'F_A', 'F_B', 'D_Loss']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        visual_names_A = ['real_A', 'fake_B', 'rec_A']
-        visual_names_B = ['real_B', 'fake_A', 'rec_B']
+        visual_names_A = []
+        visual_names_B = ['real_B', 'fake_A']
+        if self.isTrain:
+            visual_names_A = ['real_A', 'fake_B', 'rec_A_0', 'rec_A_1', 'rec_A_2']
+            visual_names_B = ['real_B', 'fake_A', 'rec_B']
         if self.isTrain and self.opt.lambda_identity > 0.0:  # if identity loss is used, we also visualize idt_B=G_A(B) ad idt_A=G_A(B)
             print("------------idt is used-------------")
             visual_names_A.append('idt_B')
@@ -75,9 +80,9 @@ class CycleGANModel(BaseModel):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, 'resnet_6blocks', opt.norm,
+        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, 'resnet_6blocks', opt.norm,
+        self.netG_B = networks.define_G(opt.output_nc, opt.input_nc * 3, opt.ngf, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
         #self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, 'cascade', opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
@@ -100,12 +105,12 @@ class CycleGANModel(BaseModel):
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
-            self.criterionFeature = networks.FeatureLoss(100*4*16 , 100*8 *8, 50*4 *8, 0.1*4*8).to(self.device)  # define GAN loss.
+            self.criterionFeature = networks.FeatureLoss(100*4*4 , 100*4 *4, 50*4 *4, 0.1*4*4).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
             self.upsample = torch.nn.Upsample(scale_factor=2, mode='bicubic')
-            self.jitter = torchvision.transforms.ColorJitter(brightness=0.01, contrast=0.0, saturation=0.01, hue=0.0)
+            self.jitter = torchvision.transforms.ColorJitter(brightness=0.05, contrast=0.0, saturation=0.00, hue=0.0)
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -134,20 +139,35 @@ class CycleGANModel(BaseModel):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         if self.isTrain:
 
-            self.fake_B = self.netG_A(self.real_A) # G_A(A)
-            PIL_fake_B_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_B)))
-            fake_B_Jittered = util.im2tensor(np.array(PIL_fake_B_Jitter))
-            self.rec_A = self.netG_B(fake_B_Jittered)   # G_B(G_A(A))
+            PIL_real_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.real_A)))
+            self.real_A = util.im2tensor(np.array(PIL_real_A_Jitter))
 
-            self.fake_A = self.netG_B(self.real_B)# G_B(B)
+
+            self.fake_B = self.netG_A(self.real_A) # G_A(A)
+            self.rec_A_array = self.netG_B(self.fake_B)   # G_B(G_A(A)
+            self.rec_A = (self.rec_A_array[randrange(self.rec_A_array.size(0)),:]).unsqueeze(0)
+
+            self.rec_A_0 = (self.rec_A_array[0,:]).unsqueeze(0)
+            self.rec_A_1 = (self.rec_A_array[1,:]).unsqueeze(0)
+            self.rec_A_2 = (self.rec_A_array[2,:]).unsqueeze(0)
+
+            self.fake_A_array = self.netG_B(self.real_B)# G_B(B)
+            self.fake_A = (self.fake_A_array[randrange(self.fake_A_array.size(0)),:]).unsqueeze(0)
             PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.fake_A)))
             fake_A_Jittered = util.im2tensor(np.array(PIL_fake_A_Jitter))
             self.rec_B = self.netG_A(fake_A_Jittered)  # G_A(G_B(B))
+
         else:
             self.fake_B = self.netG_A(self.real_A)# G_A(A)
-            self.rec_A = self.netG_B(self.fake_B)# G_B(G_A(A))
 
-            self.fake_A = self.netG_B(self.real_B)# G_B(B)
+
+            self.rec_A_array = self.netG_B(self.fake_B)# G_B(G_A(A))
+            self.rec_A = (self.rec_A_array[0,:]).unsqueeze(0)
+
+            self.fake_A_array = self.netG_B(self.real_B)# G_B(B)
+            self.fake_A, _ = self.remove_background((self.fake_A_array[1,:]).unsqueeze(0),self.real_B)
+            #self.fake_A = (self.fake_A_array[1,:]).unsqueeze(0)
+
             self.rec_B = self.netG_A(self.fake_A)# G_A(G_B(B))
 
 
@@ -221,6 +241,11 @@ class CycleGANModel(BaseModel):
         foreground = image * ngT
         no_back_image = background + foreground
         no_back_image = no_back_image.unsqueeze(0)
+        
+        numGT = torch.sum(gT).cpu().float().detach().numpy()
+        numNGT = torch.sum(ngT).cpu().float().detach().numpy()
+        ngT = min(1, numNGT)
+        normFactor = (numNGT+numGT) / numNGT
         #print(no_back_image.size())
         #testImg = util.tensor2im(no_back_image)
         #image_pil = Image.fromarray(testImg)
@@ -229,7 +254,7 @@ class CycleGANModel(BaseModel):
         #testImage = util.tensor2im(imageAux)
         #testImage = Image.fromarray(testImage)
         #testImage.save("testImage.png")
-        return no_back_image
+        return no_back_image, normFactor
 
     def calculate_Features(self, image):
         generated = (image+1.0)/2.0*255.0
@@ -255,8 +280,9 @@ class CycleGANModel(BaseModel):
             self.loss_idt_A = 0
             self.loss_idt_B = 0
 
-        fake_A_no_Background = self.remove_background(self.fake_A, self.real_B)
-        rec_B_no_Background = self.remove_background(self.rec_B, self.real_B)
+        fake_A_no_Background, _ = self.remove_background(self.fake_A, self.real_B)
+        rec_B_no_Background, normFactor = self.remove_background(self.rec_B, self.real_B)
+
 
         out7_r_B, out14_r_B, out23_r_B, out32_r_B  = self.calculate_Features(self.real_B)
 
@@ -267,9 +293,35 @@ class CycleGANModel(BaseModel):
         out7_rec_B, out14_rec_B, out23_rec_B, out32_rec_B  = self.calculate_Features(rec_B_no_Background)
 
 
-        self.loss_F_B = self.criterionFeature(out7_r_B, out14_r_B, out23_r_B, out32_r_B, out7_f_A, out14_f_A, out23_f_A, out32_f_A)
+        self.loss_F_B = 0.5 * self.criterionFeature(out7_r_B, out14_r_B, out23_r_B, out32_r_B, out7_f_A, out14_f_A, out23_f_A, out32_f_A) * normFactor
 
-        self.loss_F_A = self.criterionFeature(out7_rec_B, out14_rec_B, out23_rec_B, out32_rec_B, out7_f_A, out14_f_A, out23_f_A, out32_f_A)
+        self.loss_F_A = 0.5 * self.criterionFeature(out7_rec_B, out14_rec_B, out23_rec_B, out32_rec_B, out7_f_A, out14_f_A, out23_f_A, out32_f_A) * normFactor
+
+
+
+
+        real_A_no_Background, _ = self.remove_background(self.real_A, self.fake_B)
+        rec_A_no_Background, normFactor = self.remove_background(self.rec_A, self.fake_B)
+
+
+        out7_r_A, out14_r_A, out23_r_A, out32_r_A  = self.calculate_Features(real_A_no_Background)
+
+
+        out7_f_B, out14_f_B, out23_f_A, out32_f_B  = self.calculate_Features(self.fake_B)
+
+
+        out7_rec_A, out14_rec_A, out23_rec_A, out32_rec_A  = self.calculate_Features(rec_A_no_Background)
+
+
+        self.loss_F_A += 0.5 * self.criterionFeature(out7_r_A, out14_r_A, out23_r_A, out32_r_A , out7_f_B, out14_f_B, out23_f_A, out32_f_B) * normFactor
+
+        self.loss_F_B += 0.5 * self.criterionFeature(out7_rec_A, out14_rec_A, out23_rec_A, out32_rec_A, out7_f_B, out14_f_B, out23_f_A, out32_f_B) * normFactor
+
+
+        # poner normalizacion segun background.
+        #poner el fondo en un canal aparte.
+        #cotas 255 0 a la imagen
+
 
         # GAN loss D_A(G_A(A))
         self.loss_G_A = self.criterionGAN(self.netD_A(self.fake_B), True)
@@ -279,16 +331,25 @@ class CycleGANModel(BaseModel):
 
 #tensor2im
 
-        # Forward cycle loss || G_B(G_A(A)) - A||
-        self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A 
+        # Forward cycle loss || G_B(G_A(A)) - A||0
+
+        lossList = []
+        for image in range (self.rec_A_array.size(0)):
+            lossList.insert(image, self.criterionCycle((self.rec_A_array[image,:]).unsqueeze(0), self.real_A))
+        
+        self.loss_cycle_A = (min(lossList)*0.99 + 0.01 * sum(lossList) / len(lossList)) * lambda_A
+
+        #self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
+
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
+
         self.CycleLoss = self.loss_cycle_A + self.loss_cycle_B
 
         self.D_Loss = self.loss_G_A + self.loss_G_B
 
         # combined loss and calculate gradients
-        self.loss_G = self.CycleLoss + self.D_Loss + self.loss_idt_B + self.loss_idt_A + self.loss_F_A +self.loss_F_B
+        self.loss_G = self.CycleLoss + self.D_Loss + self.loss_F_A +self.loss_F_B + self.loss_idt_B + self.loss_idt_A
         self.loss_G.backward()
 
     def optimize_parameters(self,epoch):

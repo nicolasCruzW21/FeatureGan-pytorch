@@ -709,39 +709,39 @@ class cascaded_model(nn.Module):
         print("D_m------------------",D_m)
         res = self.resVec
         self.conv1=nn.Conv2d(input_nc, D_m[1], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv1.weight, gain=1)
+        nn.init.normal_(self.conv1.weight, 0, 0.02)
 
         nn.init.constant_(self.conv1.bias, 0)
 
-        self.lay1 = torch.nn.LayerNorm(normalized_shape =(D_m[0], res[0], res[0]), eps=1e-12, elementwise_affine=True)
+        self.lay1 = torch.nn.InstanceNorm2d(D_m[0], affine=True)
 
         #self.lay1=LayerNorm(D_m[1], eps=1e-12, affine=True)
         
         self.relu1=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv11=nn.Conv2d(D_m[1], D_m[1], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv11.weight, gain=1)
+        nn.init.normal_(self.conv11.weight, 0, 0.02)
 
         nn.init.constant_(self.conv11.bias, 0)
-        self.lay11=torch.nn.LayerNorm(normalized_shape =(D_m[0], res[0], res[0]), eps=1e-12, elementwise_affine=True)
+        self.lay11 = torch.nn.InstanceNorm2d(D_m[0], affine=True)
         
         self.relu11=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         #Layer2
         
         self.conv2=nn.Conv2d(D_m[1]+input_nc, D_m[2], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv2.weight, gain=1)
+        nn.init.normal_(self.conv2.weight, 0, 0.02)
 #        nn.init.constant(self.conv2.weight, 1)
         nn.init.constant_(self.conv2.bias, 0)
-        self.lay2=torch.nn.LayerNorm(normalized_shape =(D_m[1], res[1], res[1]), eps=1e-12, elementwise_affine=True)
+        self.lay2 = torch.nn.InstanceNorm2d(D_m[1], affine=True)
 #        self.lay2=nn.BatchNorm2d(D_m[2])
         self.relu2=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv22=nn.Conv2d(D_m[2], D_m[2], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv22.weight, gain=1)
+        nn.init.normal_(self.conv22.weight, 0, 0.02)
 #        nn.init.constant(self.conv22.weight, 1)
         nn.init.constant_(self.conv22.bias, 0)
-        self.lay22=torch.nn.LayerNorm(normalized_shape =(D_m[1], res[1], res[1]), eps=1e-12, elementwise_affine=True)
+        self.lay22 = torch.nn.InstanceNorm2d(D_m[1], affine=True)
 #        self.lay2=nn.BatchNorm2d(D_m[2])
         self.relu22=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -749,85 +749,85 @@ class cascaded_model(nn.Module):
         #layer 3
         
         self.conv3=nn.Conv2d(D_m[2]+input_nc, D_m[3], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv3.weight, gain=1)
+        nn.init.normal_(self.conv3.weight, 0, 0.02)
 #        nn.init.constant(self.conv3.weight,1)
         nn.init.constant_(self.conv3.bias, 0)
-        self.lay3=torch.nn.LayerNorm(normalized_shape =(D_m[2], res[2], res[2]), eps=1e-12, elementwise_affine=True)
+        self.lay3 = torch.nn.InstanceNorm2d(D_m[2], affine=True)
 #        self.lay3=nn.BatchNorm2d(D_m[3])
         self.relu3=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv33=nn.Conv2d(D_m[3], D_m[3], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv33.weight,gain=1)
+        nn.init.normal_(self.conv33.weight, 0, 0.02)
         nn.init.constant_(self.conv33.bias, 0)
-        self.lay33=torch.nn.LayerNorm(normalized_shape =(D_m[2], res[2], res[2]), eps=1e-12, elementwise_affine=True)
+        self.lay33 = torch.nn.InstanceNorm2d(D_m[2], affine=True)
 #        self.lay3=nn.BatchNorm2d(D_m[3])
         self.relu33=nn.LeakyReLU(negative_slope=0.2,inplace=True)
                
         #layer4
                 
         self.conv4=nn.Conv2d(D_m[3]+input_nc, D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv4.weight,gain=1)
+        nn.init.normal_(self.conv4.weight, 0, 0.02)
         nn.init.constant_(self.conv4.bias, 0)
-        self.lay4=torch.nn.LayerNorm(normalized_shape =(D_m[3], res[3], res[3]), eps=1e-12, elementwise_affine=True)
+        self.lay4 = torch.nn.InstanceNorm2d(D_m[3], affine=True)
 #        self.lay4=nn.BatchNorm2d(D_m[4])
         self.relu4=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv44=nn.Conv2d(D_m[4], D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv44.weight,gain=1)
+        nn.init.normal_(self.conv44.weight, 0, 0.02)
         nn.init.constant_(self.conv44.bias, 0)
-        self.lay44=torch.nn.LayerNorm(normalized_shape =(D_m[3], res[3], res[3]), eps=1e-12, elementwise_affine=True)
+        self.lay44 = torch.nn.InstanceNorm2d(D_m[3], affine=True)
 #        self.lay4=nn.BatchNorm2d(D_m[4])
         self.relu44=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         #layers5 
         
         self.conv5=nn.Conv2d(D_m[4]+input_nc, D_m[5], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv5.weight, gain=1)
+        nn.init.normal_(self.conv5.weight, 0, 0.02)
         nn.init.constant_(self.conv5.bias, 0)
-        self.lay5=torch.nn.LayerNorm(normalized_shape =(D_m[5], res[4], res[4]), eps=1e-12, elementwise_affine=True)
+        self.lay5 = torch.nn.InstanceNorm2d(D_m[5], affine=True)
 #        self.lay5=nn.BatchNorm2d(D_m[5])
         self.relu5=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv55=nn.Conv2d(D_m[5], D_m[5], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv55.weight, gain=1)
+        nn.init.normal_(self.conv55.weight, 0, 0.02)
         nn.init.constant_(self.conv55.bias, 0)
-        self.lay55=torch.nn.LayerNorm(normalized_shape =(D_m[5], res[4], res[4]), eps=1e-12, elementwise_affine=True)
+        self.lay55 = torch.nn.InstanceNorm2d(D_m[5], affine=True)
 #        self.lay5=nn.BatchNorm2d(D_m[5])
         self.relu55=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         #layer 6
         
         self.conv6=nn.Conv2d(D_m[5]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv6.weight, gain=1)
+        nn.init.normal_(self.conv6.weight, 0, 0.02)
         nn.init.constant_(self.conv6.bias, 0)
-        self.lay6=torch.nn.LayerNorm(normalized_shape =(D_m[5], res[5], res[5]), eps=1e-12, elementwise_affine=True)
+        self.lay6 = torch.nn.InstanceNorm2d(D_m[5], affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu6=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv66=nn.Conv2d(D_m[6], D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv66.weight, gain=1)
+        nn.init.normal_(self.conv66.weight, 0, 0.02)
         nn.init.constant_(self.conv66.bias, 0)
-        self.lay66=torch.nn.LayerNorm(normalized_shape =(D_m[5], res[5], res[5]), eps=1e-12, elementwise_affine=True)
+        self.lay66=torch.nn.InstanceNorm2d(D_m[6], affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu66=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         #layer7
         self.conv7=nn.Conv2d(D_m[6]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv7.weight, gain=1)
+        nn.init.normal_(self.conv7.weight, 0, 0.02)
         nn.init.constant_(self.conv7.bias, 0)
-        self.lay7=torch.nn.LayerNorm(normalized_shape =(D_m[6], res[6], res[6]), eps=1e-12, elementwise_affine=True)
+        self.lay7 = torch.nn.InstanceNorm2d(D_m[6], affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu7=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv77=nn.Conv2d(D_m[6], D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.xavier_uniform_(self.conv77.weight, gain=1)
+        nn.init.normal_(self.conv77.weight, 0, 0.02)
         nn.init.constant_(self.conv77.bias, 0)
-        self.lay77=torch.nn.LayerNorm(normalized_shape =(D_m[6], res[6], res[6]), eps=1e-12, elementwise_affine=True)
+        self.lay77 = torch.nn.InstanceNorm2d(D_m[6], affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu77=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv8=nn.Conv2d(D_m[6], output_nc, kernel_size=1, stride=1, padding=0,bias=True)
-        nn.init.xavier_uniform_(self.conv8.weight, gain=1)
+        nn.init.normal_(self.conv8.weight, 0, 0.02)
         nn.init.constant_(self.conv8.bias, 0)
     def forward(self, label):
         
@@ -844,7 +844,7 @@ class cascaded_model(nn.Module):
         
         L11=self.lay11(out11)
         out22= self.relu11(L11)
-        m = nn.functional.interpolate(out22, size=(self.D[1].size(3)*2,self.D[1].size(3)*2), mode='bilinear',align_corners=False)    
+        m = nn.functional.interpolate(out22, size=(self.D[1].size(3)*2, self.D[1].size(3)*2), mode='bilinear',align_corners=True)    
         img1 = torch.cat((m, self.D[2]),1) 
        
         
@@ -856,9 +856,9 @@ class cascaded_model(nn.Module):
         L22=self.lay22(out33)
         out44= self.relu22(L22)
         
-        m = nn.Upsample(size=(self.D[2].size(3)*2, self.D[2].size(3)*2), mode='bilinear')
+        m = nn.functional.interpolate(out44, size=(self.D[2].size(3)*2, self.D[2].size(3)*2), mode='bilinear',align_corners=True)    
         
-        img2 = torch.cat((m(out44), self.D[3]),1)
+        img2 = torch.cat((m, self.D[3]),1)
         
         out5= self.conv3(img2)
         L3=self.lay3(out5)
@@ -868,9 +868,9 @@ class cascaded_model(nn.Module):
         L33=self.lay33(out55)
         out66= self.relu33(L33)
         
-        m = nn.Upsample(size=(self.D[3].size(3)*2, self.D[3].size(3)*2), mode='bilinear')
+        m = nn.functional.interpolate(out66, size=(self.D[3].size(3)*2, self.D[3].size(3)*2), mode='bilinear',align_corners=True)    
         
-        img3 = torch.cat((m(out66), self.D[4]),1)
+        img3 = torch.cat((m, self.D[4]),1)
         
         out7= self.conv4(img3)
         L4=self.lay4(out7)
@@ -880,9 +880,9 @@ class cascaded_model(nn.Module):
         L44=self.lay44(out77)
         out88= self.relu44(L44)
 
-        m = nn.Upsample(size=(self.D[4].size(3)*2, self.D[4].size(3)*2), mode='bilinear')
+        m = nn.functional.interpolate(out88, size=(self.D[4].size(3)*2, self.D[4].size(3)*2), mode='bilinear',align_corners=True)    
         
-        img4 = torch.cat((m(out88), self.D[5]),1)        
+        img4 = torch.cat((m, self.D[5]),1)        
         
         out9= self.conv5(img4)
         L5=self.lay5(out9)
@@ -893,9 +893,9 @@ class cascaded_model(nn.Module):
         out110= self.relu55(L55)
 #        L5=self.lay5(out10)
         
-        m = nn.Upsample(size=(self.D[5].size(3)*2, self.D[5].size(3)*2),mode='bilinear')
+        m = nn.functional.interpolate(out110, size=(self.D[5].size(3)*2, self.D[5].size(3)*2), mode='bilinear',align_corners=True)  
         
-        img5 = torch.cat((m(out110), self.D[6]),1)
+        img5 = torch.cat((m, self.D[6]),1)
                
         out11= self.conv6(img5)
         L6=self.lay6(out11)
@@ -905,9 +905,9 @@ class cascaded_model(nn.Module):
         L66=self.lay66(out111)
         out112= self.relu66(L66)
         
-        m = nn.Upsample(size=(self.D[6].size(3)*2, self.D[6].size(3)*2),mode='bilinear')
+        m = nn.functional.interpolate(out112, size=(self.D[6].size(3)*2, self.D[6].size(3)*2), mode='bilinear',align_corners=True)  
         
-        img6 = torch.cat((m(out112), label),1)       
+        img6 = torch.cat((m, label),1)       
          
         out13= self.conv7(img6)
         L7=self.lay7(out13)
@@ -939,7 +939,7 @@ class cascaded_model(nn.Module):
         return downsampled  
 
     def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
-        dim=32 if res>=128 else 64
+        dim=128 if res>=128 else 256
         if res != 4:
             img = self.findD_m(res//2)
         self.D_m.insert(self.count, dim)
@@ -1046,5 +1046,5 @@ class VGG19(nn.Module):
         out35=self.conv16(out34)
         out36=self.relu16(out35)
         out37=self.max5(out36)
-        return out7, out16, out25, out34                     #Add appropriate outputs
+        return out9, out16, out25, out34                     #Add appropriate outputs
 
