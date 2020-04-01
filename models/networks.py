@@ -949,9 +949,9 @@ class cascaded_model(nn.Module):
 
     def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
         #print("self.filter_number_2",self.filter_number)
-        dim=(int)(self.filter_number/4)
+        dim=(int)(self.filter_number)
         if res >= int(self.res/2):
-            dim = (int)(self.filter_number)
+            dim = (int)(self.filter_number/4)
         elif res >= int(self.res/8):
             dim= (int)(self.filter_number/2)
 

@@ -80,9 +80,9 @@ class CycleGANModel(BaseModel):
         # define networks (both Generators and discriminators)
         # The naming is different from those used in the paper.
         # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
+        self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, 256, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        self.netG_B = networks.define_G(opt.output_nc + 2, opt.input_nc * 9, opt.ngf, opt.netG, opt.norm,
+        self.netG_B = networks.define_G(opt.output_nc + 2, opt.input_nc * 9, 256, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
         self.ones = torch.ones([256,256]).cuda().float()
         self.ones3D = torch.ones([1, 256,256]).cuda().float()
@@ -108,7 +108,7 @@ class CycleGANModel(BaseModel):
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
 
             factor = 6
-            self.backgroundFactor = 0.2        
+            self.backgroundFactor = 0.02        
             
             self.criterionFeature = networks.FeatureLoss(52*factor , 108*factor, 162*factor, 96*factor).to(self.device)
             #self.criterionFeature = networks.FeatureLoss(1000000 , 1000000, 1000000, 1).to(self.device)
