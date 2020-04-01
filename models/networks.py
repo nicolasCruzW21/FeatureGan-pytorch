@@ -155,7 +155,7 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'cascade':
-        net = cascaded_model(input_nc, output_nc , 256)
+        net = cascaded_model(input_nc, output_nc , 256, ngf)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -167,7 +167,11 @@ def vggnet(pretrained=False, model_root=None, **kwargs):
     return model
 
 def define_F(gpu_ids=[]):
+
     Net=vggnet(pretrained=False, model_root=None)
+    Net=Net.eval()
+    for param in Net.parameters():
+        param.requires_grad = False
 
     Net=Net.to(gpu_ids[0])
 
@@ -663,7 +667,7 @@ class NLayerDiscriminator(nn.Module):
         return self.model(input)
 
 
-class PixelDiscriminator(nn.Module):
+class PixelDiscriminator(nn.Module): 
     """Defines a 1x1 PatchGAN discriminator (pixelGAN)"""
 
     def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d):
@@ -698,22 +702,27 @@ class PixelDiscriminator(nn.Module):
 
 
 class cascaded_model(nn.Module):
-    def __init__(self, input_nc, output_nc, res):
+    def __init__(self, input_nc, output_nc, res, filter_number):
         super(cascaded_model, self).__init__()
         self.res = res
         self.count=0
         self.D_m=[]
         self.resVec = []
+        self.filter_number = filter_number
+        print("self.filter_number",self.filter_number)
         self.findD_m(res)
         D_m = self.D_m
+
+        
+
         print("D_m------------------",D_m)
         res = self.resVec
-        self.conv1=nn.Conv2d(input_nc, D_m[1], kernel_size=3, stride=1, padding=1,bias=True)
+        self.conv1=nn.Conv2d(input_nc, D_m[0], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.normal_(self.conv1.weight, 0, 0.02)
 
         nn.init.constant_(self.conv1.bias, 0)
 
-        self.lay1 = torch.nn.InstanceNorm2d(D_m[0], affine=True)
+        self.lay1 = torch.nn.InstanceNorm2d(D_m[1], affine=True)
 
         #self.lay1=LayerNorm(D_m[1], eps=1e-12, affine=True)
         
@@ -723,7 +732,7 @@ class cascaded_model(nn.Module):
         nn.init.normal_(self.conv11.weight, 0, 0.02)
 
         nn.init.constant_(self.conv11.bias, 0)
-        self.lay11 = torch.nn.InstanceNorm2d(D_m[0], affine=True)
+        self.lay11 = torch.nn.InstanceNorm2d(D_m[1], affine=True)
         
         self.relu11=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -733,7 +742,7 @@ class cascaded_model(nn.Module):
         nn.init.normal_(self.conv2.weight, 0, 0.02)
 #        nn.init.constant(self.conv2.weight, 1)
         nn.init.constant_(self.conv2.bias, 0)
-        self.lay2 = torch.nn.InstanceNorm2d(D_m[1], affine=True)
+        self.lay2 = torch.nn.InstanceNorm2d(D_m[2], affine=True)
 #        self.lay2=nn.BatchNorm2d(D_m[2])
         self.relu2=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -741,7 +750,7 @@ class cascaded_model(nn.Module):
         nn.init.normal_(self.conv22.weight, 0, 0.02)
 #        nn.init.constant(self.conv22.weight, 1)
         nn.init.constant_(self.conv22.bias, 0)
-        self.lay22 = torch.nn.InstanceNorm2d(D_m[1], affine=True)
+        self.lay22 = torch.nn.InstanceNorm2d(D_m[2], affine=True)
 #        self.lay2=nn.BatchNorm2d(D_m[2])
         self.relu22=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -752,14 +761,14 @@ class cascaded_model(nn.Module):
         nn.init.normal_(self.conv3.weight, 0, 0.02)
 #        nn.init.constant(self.conv3.weight,1)
         nn.init.constant_(self.conv3.bias, 0)
-        self.lay3 = torch.nn.InstanceNorm2d(D_m[2], affine=True)
+        self.lay3 = torch.nn.InstanceNorm2d(D_m[3], affine=True)
 #        self.lay3=nn.BatchNorm2d(D_m[3])
         self.relu3=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv33=nn.Conv2d(D_m[3], D_m[3], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.normal_(self.conv33.weight, 0, 0.02)
         nn.init.constant_(self.conv33.bias, 0)
-        self.lay33 = torch.nn.InstanceNorm2d(D_m[2], affine=True)
+        self.lay33 = torch.nn.InstanceNorm2d(D_m[3], affine=True)
 #        self.lay3=nn.BatchNorm2d(D_m[3])
         self.relu33=nn.LeakyReLU(negative_slope=0.2,inplace=True)
                
@@ -768,14 +777,14 @@ class cascaded_model(nn.Module):
         self.conv4=nn.Conv2d(D_m[3]+input_nc, D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.normal_(self.conv4.weight, 0, 0.02)
         nn.init.constant_(self.conv4.bias, 0)
-        self.lay4 = torch.nn.InstanceNorm2d(D_m[3], affine=True)
+        self.lay4 = torch.nn.InstanceNorm2d(D_m[4], affine=True)
 #        self.lay4=nn.BatchNorm2d(D_m[4])
         self.relu4=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
         self.conv44=nn.Conv2d(D_m[4], D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.normal_(self.conv44.weight, 0, 0.02)
         nn.init.constant_(self.conv44.bias, 0)
-        self.lay44 = torch.nn.InstanceNorm2d(D_m[3], affine=True)
+        self.lay44 = torch.nn.InstanceNorm2d(D_m[4], affine=True)
 #        self.lay4=nn.BatchNorm2d(D_m[4])
         self.relu44=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -800,7 +809,7 @@ class cascaded_model(nn.Module):
         self.conv6=nn.Conv2d(D_m[5]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
         nn.init.normal_(self.conv6.weight, 0, 0.02)
         nn.init.constant_(self.conv6.bias, 0)
-        self.lay6 = torch.nn.InstanceNorm2d(D_m[5], affine=True)
+        self.lay6 = torch.nn.InstanceNorm2d(D_m[6], affine=True)
 #        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu6=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
@@ -939,7 +948,13 @@ class cascaded_model(nn.Module):
         return downsampled  
 
     def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
-        dim=128 if res>=128 else 256
+        #print("self.filter_number_2",self.filter_number)
+        dim=(int)(self.filter_number/4)
+        if res >= int(self.res/2):
+            dim = (int)(self.filter_number)
+        elif res >= int(self.res/8):
+            dim= (int)(self.filter_number/2)
+
         if res != 4:
             img = self.findD_m(res//2)
         self.D_m.insert(self.count, dim)
@@ -1046,5 +1061,5 @@ class VGG19(nn.Module):
         out35=self.conv16(out34)
         out36=self.relu16(out35)
         out37=self.max5(out36)
-        return out9, out16, out25, out34                     #Add appropriate outputs
+        return out12, out16, out18, out23                   #Add appropriate outputs
 
