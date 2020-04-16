@@ -832,12 +832,24 @@ class cascaded_model(nn.Module):
         nn.init.normal_(self.conv77.weight, 0, 0.02)
         nn.init.constant_(self.conv77.bias, 0)
         self.lay77 = torch.nn.InstanceNorm2d(D_m[6], affine=True)
-#        self.lay6=nn.BatchNorm2d(D_m[6])
         self.relu77=nn.LeakyReLU(negative_slope=0.2,inplace=True)
         
-        self.conv8=nn.Conv2d(D_m[6], output_nc, kernel_size=1, stride=1, padding=0,bias=True)
+        self.conv8=nn.Conv2d(D_m[6], (int)(D_m[6]/4), kernel_size=1, stride=1, padding=0,bias=True)
         nn.init.normal_(self.conv8.weight, 0, 0.02)
         nn.init.constant_(self.conv8.bias, 0)
+        self.lay8 = torch.nn.InstanceNorm2d((int)(D_m[6]/4), affine=True)
+        self.relu8 = nn.LeakyReLU(negative_slope=0.2,inplace=True)
+
+        self.conv9=nn.Conv2d((int)(D_m[6]/4), (int)(D_m[6]/8), kernel_size=1, stride=1, padding=0,bias=True)
+        nn.init.normal_(self.conv9.weight, 0, 0.02)
+        nn.init.constant_(self.conv9.bias, 0)
+        self.lay9 = torch.nn.InstanceNorm2d((int)(D_m[6]/8), affine=True)
+        self.relu9 = nn.LeakyReLU(negative_slope=0.2,inplace=True)
+
+        self.conv10=nn.Conv2d((int)(D_m[6]/8), output_nc, kernel_size=1, stride=1, padding=0,bias=True)
+        nn.init.normal_(self.conv10.weight, 0, 0.02)
+        nn.init.constant_(self.conv10.bias, 0)
+
     def forward(self, label):
         
         self.D = []
@@ -918,20 +930,29 @@ class cascaded_model(nn.Module):
         
         img6 = torch.cat((m, label),1)       
          
-        out13= self.conv7(img6)
-        L7=self.lay7(out13)
-        out14= self.relu7(L7)
+        out13 = self.conv7(img6)
+        L7 = self.lay7(out13)
+        out14 = self.relu7(L7)
         
-        out113= self.conv77(out14)
-        L77=self.lay77(out113)
-        out114= self.relu77(L77)
+        out113 = self.conv77(out14)
+        L77 = self.lay77(out113)
+        out114 = self.relu77(L77)
         
-        out15= self.conv8(out114)
-        
+        out15 = self.conv8(out114)
+        L8 = self.lay8(out15)
+        out16 = self.relu8(L8)
+
+        out17 = self.conv9(out16)
+        L9  = self.lay9(out17)
+        out18= self.relu9(L9)
+
+        out19= self.conv10(out18)
+
+
         #out15=(out15+1.0)/2.0*255.0
         
-        out16,out17,out18=torch.chunk(out15.permute(1,0,2,3),3,0)
-        out=torch.cat((out16,out17,out18),1)
+        out20,out21,out22=torch.chunk(out19.permute(1,0,2,3),3,0)
+        out=torch.cat((out20,out21,out22),1)
 
         return out
 
@@ -949,9 +970,9 @@ class cascaded_model(nn.Module):
 
     def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
         #print("self.filter_number_2",self.filter_number)
-        dim=(int)(self.filter_number)
+        dim=(int)(self.filter_number/4)
         if res >= int(self.res/2):
-            dim = (int)(self.filter_number/4)
+            dim = (int)(self.filter_number)
         elif res >= int(self.res/8):
             dim= (int)(self.filter_number/2)
 
@@ -972,14 +993,14 @@ class VGG19(nn.Module):
             
         self.conv2=nn.Conv2d(64,64, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu2=nn.ReLU(inplace=True)
-        self.max1=nn.AvgPool2d(kernel_size=2, stride=2)
+        self.max1=nn.AvgPool2d(kernel_size=7, stride=2)
             
         self.conv3=nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=True)
         self.relu3=nn.ReLU(inplace=True)
             
         self.conv4=nn.Conv2d(128, 128,  kernel_size=3, padding=1, bias=True)
         self.relu4=nn.ReLU(inplace=True)
-        self.max2=nn.AvgPool2d(kernel_size=2, stride=2)
+        self.max2=nn.AvgPool2d(kernel_size=3, stride=2)
             
         self.conv5=nn.Conv2d(128, 256,  kernel_size=3, padding=1, bias=True)
         self.relu5=nn.ReLU(inplace=True)
@@ -992,7 +1013,7 @@ class VGG19(nn.Module):
             
         self.conv8=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
         self.relu8=nn.ReLU(inplace=True)
-        self.max3=nn.AvgPool2d(kernel_size=2, stride=2)
+        self.max3=nn.AvgPool2d(kernel_size=3, stride=2)
             
         self.conv9=nn.Conv2d(256, 512,  kernel_size=3, padding=1, bias=True)
         self.relu9=nn.ReLU(inplace=True)
@@ -1005,7 +1026,7 @@ class VGG19(nn.Module):
             
         self.conv12=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
         self.relu12=nn.ReLU(inplace=True)
-        self.max4=nn.AvgPool2d(kernel_size=2, stride=2)
+        self.max4=nn.AvgPool2d(kernel_size=3, stride=2)
             
         self.conv13=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
         self.relu13=nn.ReLU(inplace=True)
@@ -1018,7 +1039,7 @@ class VGG19(nn.Module):
             
         self.conv16=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
         self.relu16=nn.ReLU(inplace=True)
-        self.max5=nn.AvgPool2d(kernel_size=2, stride=2)
+        self.max5=nn.AvgPool2d(kernel_size=3, stride=2)
 
     def forward(self, x):
         
