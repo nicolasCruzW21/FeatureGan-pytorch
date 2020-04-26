@@ -252,35 +252,34 @@ class FeatureLoss(nn.Module):
     that has the same size as the input.
     """
 
-    def __init__(self, coef1, coef2, coef3, coef4):
+    def __init__(self, coef1, coef2, coef3):
         """ Initialize the FeatureLoss class.
         
         """
         self.coef1 = coef1
         self.coef2 = coef2
         self.coef3 = coef3
-        self.coef4 = coef4
         super(FeatureLoss, self).__init__()
     def compute_error(self, R, F):
-        E= torch.mean(torch.abs(R-F))
+        self.loss = torch.nn.MSELoss()
+        E = self.loss(R,F)
         return E
 
-    def __call__(self, out7_r, out14_r, out23_r, out32_r, out7_f, out14_f, out23_f, out32_f):
+    def __call__(self, out7_r, out14_r, out23_r, out7_f, out14_f, out23_f):
 
 
 
         E1=self.compute_error(out7_r,out7_f)#/1.6
         E2=self.compute_error(out14_r,out14_f)#/2.3
         E3=self.compute_error(out23_r,out23_f)#/1.8
-        E4=self.compute_error(out32_r,out32_f)#/2.8
         
         #print("E1",E1.cpu().float().detach().numpy())
         #print("E2",E2.cpu().float().detach().numpy())
         #print("E3",E3.cpu().float().detach().numpy())
         #print("E4",E4.cpu().float().detach().numpy())
         
-        Total_loss=max(E1/self.coef1 + E2/self.coef2 + E3/self.coef3 + E4/self.coef4,0)
-        return Total_loss
+        Total_loss= max(E1/self.coef1 + E2/self.coef2 + E3/self.coef3,0)
+        return Total_loss, E1/self.coef1, E2/self.coef2, E3/self.coef3
 
 
 
@@ -291,7 +290,7 @@ class GANLoss(nn.Module):
     that has the same size as the input.
     """
 
-    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=0.0):
+    def __init__(self, gan_mode, target_real_label=0.9, target_fake_label=0.0):
         """ Initialize the GANLoss class.
 
         Parameters:
@@ -988,99 +987,129 @@ class VGG19(nn.Module):
 
     def __init__(self):
         super(VGG19, self).__init__()
+        self.lay0 = torch.nn.InstanceNorm2d(3, affine=True)
         self.conv1=nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=True)
+        self.lay1 = torch.nn.InstanceNorm2d(64, affine=True)
         self.relu1=nn.ReLU(inplace=True)
             
         self.conv2=nn.Conv2d(64,64, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu2=nn.ReLU(inplace=True)
+        self.lay2 = torch.nn.InstanceNorm2d(64, affine=True)
         self.max1=nn.AvgPool2d(kernel_size=7, stride=2)
             
         self.conv3=nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=True)
+        self.lay3 = torch.nn.InstanceNorm2d(128, affine=True)
         self.relu3=nn.ReLU(inplace=True)
             
         self.conv4=nn.Conv2d(128, 128,  kernel_size=3, padding=1, bias=True)
+        self.lay4 = torch.nn.InstanceNorm2d(128, affine=True)
         self.relu4=nn.ReLU(inplace=True)
         self.max2=nn.AvgPool2d(kernel_size=3, stride=2)
             
         self.conv5=nn.Conv2d(128, 256,  kernel_size=3, padding=1, bias=True)
+        self.lay5 = torch.nn.InstanceNorm2d(256, affine=True)
         self.relu5=nn.ReLU(inplace=True)
             
         self.conv6=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
+        self.lay6 = torch.nn.InstanceNorm2d(256, affine=True)
         self.relu6=nn.ReLU(inplace=True)
             
         self.conv7=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
+        self.lay7 = torch.nn.InstanceNorm2d(256, affine=True)
         self.relu7=nn.ReLU(inplace=True)
             
         self.conv8=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
+        self.lay8 = torch.nn.InstanceNorm2d(256, affine=True)
         self.relu8=nn.ReLU(inplace=True)
         self.max3=nn.AvgPool2d(kernel_size=3, stride=2)
             
         self.conv9=nn.Conv2d(256, 512,  kernel_size=3, padding=1, bias=True)
+        self.lay9 = torch.nn.InstanceNorm2d(512, affine=True)
         self.relu9=nn.ReLU(inplace=True)
             
         self.conv10=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.lay10 = torch.nn.InstanceNorm2d(512, affine=True)
         self.relu10=nn.ReLU(inplace=True)
             
         self.conv11=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.lay11 = torch.nn.InstanceNorm2d(512, affine=True)
         self.relu11=nn.ReLU(inplace=True)
             
         self.conv12=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.lay12 = torch.nn.InstanceNorm2d(512, affine=True)
         self.relu12=nn.ReLU(inplace=True)
         self.max4=nn.AvgPool2d(kernel_size=3, stride=2)
             
         self.conv13=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.lay13 = torch.nn.InstanceNorm2d(512, affine=True)
         self.relu13=nn.ReLU(inplace=True)
             
         self.conv14=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.lay14 = torch.nn.InstanceNorm2d(512, affine=True)
         self.relu14=nn.ReLU(inplace=True)
             
         self.conv15=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.lay15 = torch.nn.InstanceNorm2d(512, affine=True)
         self.relu15=nn.ReLU(inplace=True)
             
         self.conv16=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
+        self.lay16 = torch.nn.InstanceNorm2d(512, affine=True)
         self.relu16=nn.ReLU(inplace=True)
         self.max5=nn.AvgPool2d(kernel_size=3, stride=2)
 
     def forward(self, x):
         
-        out1= self.conv1(x)
+        out1= self.conv1(self.lay0(x))
         out2= self.relu1(out1)
             
         out3= self.conv2(out2)
         out4=self.relu2(out3)
+
         out5=self.max1(out4)
-            
         out6=self.conv3(out5)
-        out7=self.relu3(out6)            
+        out7=self.relu3(out6)  
+          
         out8=self.conv4(out7)
         out9=self.relu4(out8)
+
         out10=self.max2(out9)          
         out11=self.conv5(out10)
-        out12=self.relu5(out11)           
+        out12=self.relu5(out11)  
+         
         out13=self.conv6(out12)
-        out14=self.relu6(out13)            
+        out14=self.relu6(out13)           
         out15=self.conv7(out14)
-        out16=self.relu7(out15)            
+        out16=self.relu7(out15)
+          
         out17=self.conv8(out16)
         out18=self.relu8(out17)
+
         out19=self.max3(out18)           
         out20=self.conv9(out19)
-        out21=self.relu9(out20)            
+        out21=self.relu9(out20)
+            
         out22=self.conv10(out21)
-        out23=self.relu10(out22)            
+        out23=self.relu10(out22)
+            
         out24=self.conv11(out23)
-        out25=self.relu11(out24)           
+        out25=self.relu11(out24)         
         out26=self.conv12(out25)
         out27=self.relu12(out26)
-        out28=self.max4(out27)           
-        out29=self.conv13(out28)
-        out30=self.relu13(out29)           
-        out31=self.conv14(out30)
-        out32=self.relu14(out31)            
-        out33=self.conv15(out32)
-        out34=self.relu15(out33)            
-        out35=self.conv16(out34)
-        out36=self.relu16(out35)
-        out37=self.max5(out36)
-        return out12, out16, out18, out23                   #Add appropriate outputs
+
+        #out28=self.max4(out27)           
+        #out29=self.conv13(out28)
+        #out30=self.relu13(out29)
+          
+        #out31=self.conv14(out30)
+        #out32=self.relu14(out31)
+            
+        #out33=self.conv15(out32)
+        #out34=self.relu15(out33)
+            
+        #out35=self.conv16(out34)
+        #out36=self.relu16(out35)
+
+        #out37=self.max5(out36)
+
+        return out4, out18, out27#, out36                   #Add appropriate outputs
 
