@@ -252,16 +252,24 @@ class FeatureLoss(nn.Module):
     that has the same size as the input.
     """
 
-    def __init__(self, coef1, coef2, coef3):
+    def __init__(self, coef1, coef2, coef3, loss_type):
         """ Initialize the FeatureLoss class.
         
         """
         self.coef1 = coef1
         self.coef2 = coef2
         self.coef3 = coef3
+        self.loss_type = loss_type
+
         super(FeatureLoss, self).__init__()
     def compute_error(self, R, F):
-        self.loss = torch.nn.MSELoss()
+        if(self.loss_type == "MSE"):
+            self.loss = torch.nn.MSELoss()
+        elif(self.loss_type == "L1"):
+            self.loss = torch.nn.L1Loss()
+        else:
+            self.loss = torch.nn.SmoothL1Loss()
+
         E = self.loss(R,F)
         return E
 
@@ -269,9 +277,9 @@ class FeatureLoss(nn.Module):
 
 
 
-        E1=self.compute_error(out7_r,out7_f)#/1.6
-        E2=self.compute_error(out14_r,out14_f)#/2.3
-        E3=self.compute_error(out23_r,out23_f)#/1.8
+        E1=self.compute_error(out7_r, out7_f)#/1.6
+        E2=self.compute_error(out14_r, out14_f)#/2.3
+        E3=self.compute_error(out23_r, out23_f)#/1.8
         
         #print("E1",E1.cpu().float().detach().numpy())
         #print("E2",E2.cpu().float().detach().numpy())
@@ -642,13 +650,13 @@ class NLayerDiscriminator(nn.Module):
                 nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
             ]
-            #if(alternate):
-                #nf_mult_prev = nf_mult
-                #nf_mult = min(2 ** n, 8)
-                #sequence += [
-                    #nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-                    #norm_layer(ndf * nf_mult),
-                #]
+            if(alternate):
+                nf_mult_prev = nf_mult
+                nf_mult = min(2 ** n, 8)
+                sequence += [
+                    nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
+                    norm_layer(ndf * nf_mult),
+                ]
 
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
@@ -1059,7 +1067,7 @@ class VGG19(nn.Module):
 
     def forward(self, x):
         
-        out1= self.conv1(self.lay0(x))
+        out1= self.conv1(x)
         out2= self.relu1(out1)
             
         out3= self.conv2(out2)

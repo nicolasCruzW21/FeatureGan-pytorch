@@ -61,13 +61,13 @@ class CycleGANModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ['D_B', 'G_B', 'G_B_L', 'G_B_G', 'D_real', 'D_fake' ,'D_G_real', 'D_G_fake' ,'F_B', 'F_B_field', 'F_B_RLG', 'G']
+        self.loss_names = ['D_B', 'G_B', 'G_B_L', 'G_B_G', 'D_real', 'D_fake' ,'D_G_real', 'D_G_fake' ,'F_B', 'F_B_field', 'F_B_ImageLayer', 'G']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         visual_names_A = []
         visual_names_B = ['real_B', 'fake_A']
         if self.isTrain:
             visual_names_A = []
-            visual_names_B = ['real_B', 'fake_A', 'norm_RGL_real_B', 'norm_RGL_fake_A', 'norm_field_real_B', 'norm_field_fake_A']
+            visual_names_B = ['real_B', 'fake_A', 'norm_field_real_B', 'norm_field_fake_A', 'Image_real_B', 'Image_fake_A', 'back_fake_A', 'back_real_B']
         if self.isTrain and self.opt.lambda_identity > 0.0:  # if identity loss is used, we also visualize idt_B=G_A(B) ad idt_A=G_A(B)
             print("------------idt is used-------------")
             #visual_names_A.append('idt_B')
@@ -93,8 +93,8 @@ class CycleGANModel(BaseModel):
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
-        self.ones = torch.ones([256,256]).cuda().float()
-        self.ones3D = torch.ones([1, 256,256]).cuda().float()
+        self.ones = torch.ones([opt.crop_size,opt.crop_size]).cuda().float()
+        self.ones3D = torch.ones([1, opt.crop_size,opt.crop_size]).cuda().float()
         #self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, 'cascade', opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
         if self.isTrain:  # define discriminators
@@ -112,8 +112,9 @@ class CycleGANModel(BaseModel):
  
 
         self.backgroundFactor = 0.02
-        self.foregroundFactor = 0.2 
+        self.foregroundFactor = 0.04 
         self.lay0 = torch.nn.InstanceNorm2d(3, affine=True).cuda()
+        self.lay1 = torch.nn.LayerNorm([3, opt.crop_size, opt.crop_size], elementwise_affine=False).cuda()
         if self.isTrain:
             if opt.lambda_identity > 0.0:  # only works when input and output images have the same number of channels
                 assert(opt.input_nc == opt.output_nc)
@@ -123,20 +124,22 @@ class CycleGANModel(BaseModel):
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
 
             
-            factorField = 8
-            factor = 16
+            factorField = 6
+            self.factorBack = 1
+            #factor = 6
+            factorImage = 3
                 
             
-            self.criterionFeatureField = networks.FeatureLoss(5.2*factorField , 10.8*factorField, 0.8*factorField).to(self.device)
-            self.criterionFeature =      networks.FeatureLoss(5.2*factor ,      10.8*factor,      0.8*factor      ).to(self.device)
+            self.criterionFeatureField = networks.FeatureLoss(5.2*factorField , 10.8*factorField, 0.8*factorField, "MSE").to(self.device)
+            self.criterionFeatureImage =      networks.FeatureLoss(5.2*factorImage ,      10.8*factorImage,      0.8*factorImage,      "L1").to(self.device)
             #self.criterionFeature = networks.FeatureLoss(1000000 , 1000000, 1000000, 1).to(self.device)
 
-            self.criterionCycle_A = torch.nn.L1Loss()
+            self.criterionL1 = torch.nn.L1Loss()
             self.criterionCycle_B = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
             self.upsample = torch.nn.Upsample(scale_factor=2, mode='bicubic')
-            self.jitter = torchvision.transforms.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.05, hue=0.05)
+            self.jitter = torchvision.transforms.ColorJitter(brightness=0.025, contrast=0.025, saturation=0.025, hue=0.015)
             self.jitterIdt = torchvision.transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -191,6 +194,7 @@ class CycleGANModel(BaseModel):
             #self.rec_A_2 = (self.rec_A_array[2,:]).unsqueeze(0)
 
             #self.fake_A_array = self.netG_B(self.add_background_foreground_channel(self.real_B, self.real_B))# G_B(B)
+            
             self.real_B_channels = self.add_background_field_channel(self.real_B, self.real_B)
             self.fake_A_array = self.netG_B(self.real_B_channels)# G_B(B)
 
@@ -214,6 +218,7 @@ class CycleGANModel(BaseModel):
 
             #self.fake_A_array = self.netG_B(self.add_background_foreground_channel(self.real_B, self.real_B))# G_B(B)
             self.real_B_channels = self.add_background_field_channel(self.real_B, self.real_B)
+            
             self.fake_A_array = self.netG_B(self.real_B_channels)# G_B(B)
             self.fake_A = (self.fake_A_array[0,:]).unsqueeze(0)
 
@@ -274,11 +279,11 @@ class CycleGANModel(BaseModel):
     def remove_background(self, image, label, bound):
         label = label.squeeze(0)
         image = image.squeeze(0)
-        R = 50 * 2.0 / 255.0
+        R = 137 * 2.0 / 255.0
         R = R - 1
-        G = 50 * 2.0 / 255.0
+        G = 132 * 2.0 / 255.0
         G = G - 1
-        B = 50 * 2.0 / 255.0
+        B = 129 * 2.0 / 255.0
         B = B - 1
 
         #R
@@ -322,11 +327,11 @@ class CycleGANModel(BaseModel):
     def add_background(self, image, backgroundimage, label, bound):
         label = label.squeeze(0)
         image = image.squeeze(0)
-        R = 50 * 2.0 / 255.0
+        R = 137 * 2.0 / 255.0
         R = R - 1
-        G = 50 * 2.0 / 255.0
+        G = 132 * 2.0 / 255.0
         G = G - 1
-        B = 50 * 2.0 / 255.0
+        B = 129 * 2.0 / 255.0
         B = B - 1
 
         #R
@@ -371,11 +376,11 @@ class CycleGANModel(BaseModel):
     def add_background_field_channel(self, image, label):
         label = label.squeeze(0)
         image = image.squeeze(0)
-        R = 50 * 2.0 / 255.0
+        R = 137 * 2.0 / 255.0
         R = R - 1
-        G = 50 * 2.0 / 255.0
+        G = 132 * 2.0 / 255.0
         G = G - 1
-        B = 50 * 2.0 / 255.0
+        B = 129 * 2.0 / 255.0
         B = B - 1
 
         #R
@@ -413,11 +418,11 @@ class CycleGANModel(BaseModel):
 #----------------------------------------field-----------------------------------------------
 
 
-        R = 75.5 * 2.0 / 255.0
+        R = 76 * 2.0 / 255.0
         R = R - 1
-        G = 92.5 * 2.0 / 255.0
+        G = 93 * 2.0 / 255.0
         G = G - 1
-        B = 64 * 2.0 / 255.0
+        B = 57 * 2.0 / 255.0
         B = B - 1
 
         #R
@@ -463,14 +468,14 @@ class CycleGANModel(BaseModel):
         finalImage = finalImage.unsqueeze(0)
         return finalImage
 
-    def get_field_robot_line_goal_images(self, image, label):
+    def get_field_robot_line_goal_background_images(self, image, label):
         label = label.squeeze(0)
         image = image.squeeze(0)
-        R = 50 * 2.0 / 255.0
+        R = 137 * 2.0 / 255.0
         R = R - 1
-        G = 50 * 2.0 / 255.0
+        G = 132 * 2.0 / 255.0
         G = G - 1
-        B = 50 * 2.0 / 255.0
+        B = 129 * 2.0 / 255.0
         B = B - 1
 
         #R
@@ -499,7 +504,7 @@ class CycleGANModel(BaseModel):
 
         #foreground = image * notbackGroundTen
         #print("foreground",foreground.size())
-        background = self.ones * backGroundTen
+        background = image * backGroundTen
         #print("background",background.size())
         
 
@@ -508,11 +513,11 @@ class CycleGANModel(BaseModel):
 #----------------------------------------field-----------------------------------------------
 
 
-        R = 75.5 * 2.0 / 255.0
+        R = 76 * 2.0 / 255.0
         R = R - 1
-        G = 92.5 * 2.0 / 255.0
+        G = 93 * 2.0 / 255.0
         G = G - 1
-        B = 64 * 2.0 / 255.0
+        B = 57 * 2.0 / 255.0
         B = B - 1
 
         #R
@@ -544,133 +549,104 @@ class CycleGANModel(BaseModel):
         #print("foreground",foreground.size())
         field = image * fieldTen
         field = field - self.ones * notFieldTen
-        return robots_goal_lines.unsqueeze(0), field.unsqueeze(0)
 
-    def calculate_Features(self, image):
+        imageAux = image * notbackGroundTen
+        return imageAux.unsqueeze(0), field.unsqueeze(0), background.unsqueeze(0)
+
+    def calculate_Features(self, image, normalize = 'none'):
         generated = (image+1.0)/2.0*255.0
-        out7, out14, out23 =self.netF(generated-self.bb)
+        input_image = generated-self.bb
+        if(normalize == 'instance'):
+            input_image=self.lay0(input_image)
+        elif(normalize == 'layer'):
+            input_image=self.lay1(input_image)
+ 
+        out7, out14, out23 =self.netF(input_image)
         return out7, out14, out23
 
     def backward_G(self,epoch):
         """Calculate the loss for generators G_A and G_B"""
-        lambda_idt = self.opt.lambda_identity
-        lambda_A = self.opt.lambda_A
-        lambda_B = self.opt.lambda_B
-        # Identity loss
-
-
-        if lambda_idt > 0:
-            # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            PIL_real_B_Jitter = self.jitterIdt(Image.fromarray(util.tensor2im(self.real_B)))
-            real_B_Jittered = util.im2tensor(np.array(PIL_real_B_Jitter))
-
-            real_B_with_Background, _ = self.add_background(self.real_B, self.fake_A, self.real_B, self.backgroundFactor)
-
-            self.idt_A = self.netG_A(real_B_with_Background)
-
-            
-
-            self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
-            # G_B should be identity if real_A is fed: ||G_B(A) - A||
-            #self.idt_B = self.netG_B(self.real_A)
-
-            self.loss_idt_B = 0 #self.criterionIdt(self.idt_B, self.real_A) * lambda_A * lambda_idt
-        else:
-            self.loss_idt_A = 0
-            self.loss_idt_B = 0
-
-
-
-        #--------------------------------cycle A------------------------------------------------------
-
-        #lossList = []
-        #for image in range (self.rec_A_array.size(0)):
-            #lossList.insert(image, self.criterionCycle_A((self.rec_A_array[image,:]).unsqueeze(0), self.real_A))
-        self.loss_cycle_A = 0#(min(lossList)*0.99 + 0.01 * sum(lossList) / len(lossList)) * lambda_A
-
-
-        #real_A_no_Background, normFactor = self.remove_background(self.real_A, self.fake_B, self.backgroundFactor)
-        #fake_B_no_Background, normFactor = self.remove_background(self.fake_B, self.fake_B, self.backgroundFactor)
-        #out7_r_A, out14_r_A, out23_r_A, out32_r_A  = self.calculate_Features(real_A_no_Background)
-        #out7_f_B, out14_f_B, out23_f_A, out32_f_B  = self.calculate_Features(fake_B_no_Background)
-        self.loss_F_A = 0#self.criterionFeature(out7_r_A, out14_r_A, out23_r_A, out32_r_A , out7_f_B, out14_f_B, out23_f_A, out32_f_B) * normFactor
-
-        # GAN loss D_A(G_A(A))
-        self.loss_G_A = 0#self.criterionGAN(self.netD_A(self.fake_B), True)*0.9 + self.criterionGAN(self.netD_A_G(self.fake_B), True)*0.1
-        
-
-
 
         #--------------------------------cycle B------------------------------------------------------
 
-        
-        #print("foreground",foreground.size())
-        #field = self.ones* fieldTen
-        #field = self.real_B_channels[0,0,:,:] - self.ones * ~self.real_B_channels[0,0,:,:]
-
-        robot_line_goal_real_B, field_real_B = self.get_field_robot_line_goal_images(self.real_B,self.real_B)
-        robot_line_goal_fake_A, field_fake_A = self.get_field_robot_line_goal_images(self.fake_A,self.real_B)
-        #print("test",test.size())
-
-        #realBB = util.tensor2im((self.real_B_channels[0,2:5,:,:]).unsqueeze(0))
-
-        #recBB = util.tensor2im((field_fake_A[0,0:3,:,:]).unsqueeze(0))
 
 
-        #util.save_image(realBB, "realB.png")
+        imageAux_real_B, field_real_B, back_real_B = self.get_field_robot_line_goal_background_images(self.real_B,self.real_B)
+        imageAux_fake_A, field_fake_A, back_fake_A = self.get_field_robot_line_goal_background_images(self.fake_A,self.real_B)
 
-        #util.save_image(recBB, "field.png")
 
-        self.norm_RGL_fake_A = self.lay0(robot_line_goal_fake_A)
-        self.norm_RGL_real_B = self.lay0(robot_line_goal_real_B)
+#------------------------------------------field---------------------------------
 
         self.norm_field_fake_A = self.lay0(field_fake_A)
         self.norm_field_real_B = self.lay0(field_real_B)
-        #print("norm_field_real_B", self.norm_field_real_B.size())
 
-
-        #fake_A_no_Background, normFactor = self.remove_background(self.fake_A, self.real_B, self.backgroundFactor)
-        #real_B_no_Background, normFactor = self.remove_background(self.real_B, self.real_B, self.backgroundFactor)
-        out7_r_B, out14_r_B, out23_r_B  = self.calculate_Features(field_real_B)
-        out7_f_A, out14_f_A, out23_f_A  = self.calculate_Features(field_fake_A)
-        self.field_real_B = field_real_B
+        out7_r_B, out14_r_B, out23_r_B  = self.calculate_Features(self.norm_field_real_B, 'instance')
+        out7_f_A, out14_f_A, out23_f_A  = self.calculate_Features(self.norm_field_fake_A, 'instance')
 
         self.loss_F_B_field, self.loss_E1_field, self.loss_E2_field, self.loss_E3_field= self.criterionFeatureField(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)
 
 
-        out7_r_B, out14_r_B, out23_r_B  = self.calculate_Features(robot_line_goal_real_B)
-        out7_f_A, out14_f_A, out23_f_A  = self.calculate_Features(robot_line_goal_fake_A)
-        self.loss_F_B_RLG, self.loss_E1_RLG, self.loss_E2_RLG, self.loss_E3_RLG = self.criterionFeature(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)
 
-        self.loss_F_B = self.loss_F_B_field + self.loss_F_B_RLG
-        # Backward cycle loss || G_A(G_B(B)) - B||
-        self.loss_cycle_B = 0#self.criterionCycle_B(self.rec_B, self.real_B) * lambda_B
+#------------------------------------------robot---------------------------------
 
-        # GAN loss D_B(G_B(B))
+        #self.RGL_fake_A = (robot_line_goal_fake_A)
+        #self.RGL_real_B = (robot_line_goal_real_B)
+
+        #out7_r_B, out14_r_B, out23_r_B  = self.calculate_Features(robot_line_goal_real_B, False)
+        #out7_f_A, out14_f_A, out23_f_A  = self.calculate_Features(robot_line_goal_fake_A , False)
+
+        #self.loss_F_B_RLG, self.loss_E1_RLG, self.loss_E2_RLG, self.loss_E3_RLG = self.criterionFeature(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)
+
+
+#--------------------------------back-----------------------------------------
+
+        self.back_fake_A = back_fake_A
+        self.back_real_B = back_real_B
+
+        #out7_r_B, out14_r_B, out23_r_B  = self.calculate_Features(back_real_B, False)
+        #out7_f_A, out14_f_A, out23_f_A  = self.calculate_Features(back_fake_A, False)
+
+
+        #self.loss_L1_back = self.criterionL1(back_fake_A, back_real_B) * self.factorBack
+
+
+#--------------------------------fullImage-----------------------------------------
+        
+
+        self.Image_fake_A = self.lay1(imageAux_fake_A)
+        self.Image_real_B = self.lay1(imageAux_real_B)
+
+        #out7_r_B, out14_r_B, out23_r_B  = self.calculate_Features(self.real_B)
+        #out7_f_A, out14_f_A, out23_f_A  = self.calculate_Features(self.fake_A)
+
+        #self.loss_F_B_Image, self.loss_E1_back, self.loss_E2_back, self.loss_E3_back= self.criterionFeatureImage(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)
+
+        out7_r_B, out14_r_B, out23_r_B  = self.calculate_Features(imageAux_real_B, 'layer')
+        out7_f_A, out14_f_A, out23_f_A  = self.calculate_Features(imageAux_fake_A, 'layer')
+
+        self.loss_F_B_ImageLayer, _, _, _= self.criterionFeatureImage(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)
+        #out7_r_B, out14_r_B, out23_r_B  = self.calculate_Features(self.real_B, 'instance')
+        #out7_f_A, out14_f_A, out23_f_A  = self.calculate_Features(self.fake_A, 'instance')
+
+        #self.loss_F_B_ImageInstance, self.loss_E1_back, self.loss_E2_back, self.loss_E3_back= self.criterionFeatureImage(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)
+
+
+# ----------------------------------GAN loss D_B(G_B(B))-----------------------------------
 
 
         self.loss_G_B_G = self.criterionGAN(self.netD_B_G(self.fake_A), True)
         self.loss_G_B_L = self.criterionGAN(self.netD_B(self.fake_A), True)
-
-        self.loss_G_B = self.loss_G_B_G * 0.2 + self.loss_G_B_L * 0.8
-        
-        #test = self.real_B_channels[0,2:5,:,:]
-
-
-
+        const_aux = max(epoch,self.opt.n_epochs)-self.opt.n_epochs
+        const=const_aux/self.opt.n_epochs_decay*0.4
+        self.loss_G_B = self.loss_G_B_G * (0.3 + const) + self.loss_G_B_L * (0.7 - const)
         
 
-        #recBB = util.tensor2im(self.smooth_fake_A)
-        #util.save_image(recBB, "self.smooth_fake_A.png")
+#--------------------------------Total------------------------------------------------------
 
-        #--------------------------------Total------------------------------------------------------
-
-        self.CycleLoss = self.loss_cycle_A + self.loss_cycle_B
-
-        self.D_Loss = self.loss_G_A + self.loss_G_B
+        self.loss_F_B = self.loss_F_B_field + self.loss_F_B_ImageLayer# + self.loss_L1_back
 
         # combined loss and calculate gradients
-        self.loss_G = self.CycleLoss  + self.D_Loss + self.loss_F_A +self.loss_F_B + self.loss_idt_B + self.loss_idt_A
+        self.loss_G = self.loss_G_B + self.loss_F_B
         self.loss_G.backward()
 
     def optimize_parameters(self,epoch):

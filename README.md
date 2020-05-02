@@ -1,3 +1,9 @@
+python test.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_128 --num_test 860 --load_size 256 --epoch 100
+
+python train.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_128 --load_size 286 --lr 0.000025 --n_epochs 1 --n_epochs_decay 100 --print_freq 200 --display_freq 200 --lambda_identity 0.0 --continue_train
+
+ffmpeg -framerate 10 -start_number 0 -i %d_simSample_fake_A.png -c:v libx264 -profile:v high -crf 20 -pix_fmt yuv420p outputGen.mp4
+
 <img src='imgs/horse2zebra.gif' align="right" width=384>
 
 <br><br><br>
