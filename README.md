@@ -240,3 +240,10 @@ If you love cats, and love reading cool graphics, vision, and learning papers, p
 
 ## Acknowledgments
 Our code is inspired by [pytorch-DCGAN](https://github.com/pytorch/examples/tree/master/dcgan).
+
+
+
+python train.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_256 --load_size 296 --crop_size 256 --lr 0.00005 --n_epochs 20 --n_epochs_decay 300 --print_freq 200 --display_freq 200 --lambda_identity 0.0 --continue_train --epoch 60
+
+
+python test.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_128 --num_test 860 --load_size 256 --epoch 135
