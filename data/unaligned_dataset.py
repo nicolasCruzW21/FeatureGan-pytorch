@@ -33,7 +33,7 @@ class UnalignedDataset(BaseDataset):
         btoA = self.opt.direction == 'BtoA'
         input_nc = self.opt.output_nc if btoA else self.opt.input_nc       # get the number of channels of input image
         output_nc = self.opt.input_nc if btoA else self.opt.output_nc      # get the number of channels of output image
-        self.transform_A = get_transform(self.opt, grayscale=(input_nc == 1))
+        self.transform_A = get_transform(self.opt, grayscale=(input_nc == 1), rotate = True)
         self.transform_B = get_transform(self.opt, grayscale=(output_nc == 1))
 
     def __getitem__(self, index):
@@ -57,6 +57,8 @@ class UnalignedDataset(BaseDataset):
         A_img = Image.open(A_path).convert('RGB')
         B_img = Image.open(B_path).convert('RGB')
         # apply image transformation
+        
+        #print("---------------------------------------------")
         A = self.transform_A(A_img)
         B = self.transform_B(B_img)
 

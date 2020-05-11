@@ -3,6 +3,7 @@
 It also includes common transformation functions (e.g., get_transform, __scale_width), which can be later used in subclasses.
 """
 import random
+import math
 import numpy as np
 import torch.utils.data as data
 from PIL import Image
@@ -78,7 +79,7 @@ def get_params(opt, size):
     return {'crop_pos': (x, y), 'flip': flip}
 
 
-def get_transform(opt, params=None, grayscale=False, method=Image.BICUBIC, convert=True):
+def get_transform(opt, params=None, grayscale=False, rotate = False, method=Image.BICUBIC, convert=True):
     transform_list = []
     if grayscale:
         transform_list.append(transforms.Grayscale(1))
@@ -87,6 +88,13 @@ def get_transform(opt, params=None, grayscale=False, method=Image.BICUBIC, conve
         transform_list.append(transforms.Resize(osize, method))
     elif 'scale_width' in opt.preprocess:
         transform_list.append(transforms.Lambda(lambda img: __scale_width(img, opt.load_size, opt.crop_size, method)))
+    if(rotate):
+        theta = 7
+        print("rotation activated", theta)
+        transform_list.append(transforms.RandomRotation(theta, resample= 2, expand=True, center=None, fill=None))
+        thetaRad = theta * math.pi/180.0
+        h = opt.load_size - 2 * 9 #opt.load_size * math.sin(thetaRad)
+        transform_list.append(transforms.CenterCrop(h))
 
     if 'crop' in opt.preprocess:
         if params is None:
