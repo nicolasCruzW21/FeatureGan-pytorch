@@ -640,9 +640,11 @@ class NLayerDiscriminator(nn.Module):
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
 
+
+
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
+        sequence = [nn.Conv2d(9, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]#input_nc
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):  # gradually increase the number of filters
@@ -664,9 +666,20 @@ class NLayerDiscriminator(nn.Module):
         sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
         self.model = nn.Sequential(*sequence)
 
+        self.squeeze = nn.Conv2d(input_nc-3, 6, kernel_size=1, stride=1, padding=0)
+        self.squeeze_leaky = nn.LeakyReLU(0.2, True)
+
     def forward(self, input):
         """Standard forward."""
-        return self.model(input)
+        
+        input_no_RGB = input[:,3:,:]
+        #print("input_no_RGB",input_no_RGB.size())
+        squeezed = self.squeeze_leaky(self.squeeze(input_no_RGB))
+        #print("squeezed",squeezed.size())
+        newInput = torch.cat([input[:,0:3,:], squeezed], 1)
+
+
+        return self.model(newInput)
 
 
 class NLayerPyramidDiscriminator(nn.Module):

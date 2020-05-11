@@ -67,7 +67,7 @@ class CycleGANModel(BaseModel):
         visual_names_B = ['real_B', 'fake_A']
         if self.isTrain:
             visual_names_A = []
-            visual_names_B = ['real_B', 'fake_A', 'norm_field_real_B', 'norm_field_fake_A', 'Image_real_B', 'Image_fake_A', 'back_fake_A', 'greenBack']
+            visual_names_B = ['real_A', 'real_B', 'fake_A', 'norm_field_real_B', 'norm_field_fake_A', 'Image_real_B', 'Image_fake_A', 'back_fake_A', 'greenBack']
         if self.isTrain and self.opt.lambda_identity > 0.0:  # if identity loss is used, we also visualize idt_B=G_A(B) ad idt_A=G_A(B)
             print("------------idt is used-------------")
             #visual_names_A.append('idt_B')
@@ -102,16 +102,16 @@ class CycleGANModel(BaseModel):
                                             #opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
-            self.netD_B = networks.define_D(7, 68, "n_layers", 
+            self.netD_B = networks.define_D(387, 68, "n_layers", 
                                             3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
-            self.netD_B_G = networks.define_D(7, 68, "n_layers", 
-                                            5, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
+            self.netD_B_G = networks.define_D(387, 68, "n_layers", 
+                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
 
             self.netF = networks.define_F(self.gpu_ids)
  
 
-        self.backgroundFactor = 0.08
+        self.backgroundFactor = 0.15
         self.foregroundFactor = 0.04 
         self.bound_back = 0.0
         self.bound_back_div = -0.05
@@ -130,7 +130,7 @@ class CycleGANModel(BaseModel):
             factorField = 6
             self.factorBack = 1
             #factor = 6
-            factorImage = 1
+            factorImage = 3
                 
             
             self.criterionFeatureField = networks.FeatureLoss(5.2*factorField , 10.8*factorField, 0.8*factorField, "MSE").to(self.device)
@@ -141,7 +141,12 @@ class CycleGANModel(BaseModel):
             self.criterionCycle_B = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
+
+            self.avg_pool_disc = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
+
             self.upsample = torch.nn.Upsample(size=opt.crop_size, mode='bilinear')
+            self.upsample_G = torch.nn.Upsample(size=(int)(opt.crop_size/2), mode='bilinear')
+
             self.jitter = torchvision.transforms.ColorJitter(brightness=0.025, contrast=0.025, saturation=0.025, hue=0.015)
             self.jitterIdt = torchvision.transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
@@ -278,20 +283,21 @@ class CycleGANModel(BaseModel):
         out0_f_A, out1_f_A, out2_f_A, out3_f_A, _  = self.calculate_Features(fake_A, 'layer')
         out0_r_A, out1_r_A, out2_r_A, out3_r_A, _  = self.calculate_Features(real_A, 'layer')
 
-        
-        
-        concat_fake_A = torch.cat([self.upsample(out3_f_A[:,0:2,:]), self.upsample(out2_f_A[:,0:2,:])], 1)
-        #print(concat_fake_A[:,0:1,:])
-        concat_fake_A = torch.cat([fake_A, concat_fake_A], 1)
+        concat_fake_A_G = torch.cat([self.upsample_G(out3_f_A[:,:,:]), self.upsample_G(out2_f_A[:,:,:])], 1)
+        concat_fake_A_G = torch.cat([self.avg_pool_disc(fake_A), concat_fake_A_G], 1)
 
-        concat_real_A = torch.cat([self.upsample(out3_r_A[:,0:2,:]), self.upsample(out2_r_A[:,0:2,:])], 1)
-        concat_real_A = torch.cat([real_A, concat_real_A], 1)
+        concat_real_A_G = torch.cat([self.upsample_G(out3_r_A[:,:,:]), self.upsample_G(out2_r_A[:,:,:])], 1)
+        concat_real_A_G = torch.cat([self.avg_pool_disc(real_A), concat_real_A_G], 1)
 
 
+        concat_fake_A_L = torch.cat([self.upsample(out3_f_A[:,:,:]), self.upsample(out2_f_A[:,:,:])], 1)
+        concat_fake_A_L = torch.cat([fake_A, concat_fake_A_L], 1)
 
+        concat_real_A_L = torch.cat([self.upsample(out3_r_A[:,:,:]), self.upsample(out2_r_A[:,:,:])], 1)
+        concat_real_A_L = torch.cat([real_A, concat_real_A_L], 1)
 
-        self.loss_D_B = self.backward_D_basic(self.netD_B, concat_real_A, concat_fake_A, False)
-        self.loss_D_B_G = self.backward_D_basic(self.netD_B_G, concat_real_A, concat_fake_A, True)
+        self.loss_D_B = self.backward_D_basic(self.netD_B, concat_real_A_L, concat_fake_A_L, False)
+        self.loss_D_B_G = self.backward_D_basic(self.netD_B_G, concat_real_A_G, concat_fake_A_G, True)
 
 
     def calculate_Features(self, image, normalize = 'none'):
@@ -349,18 +355,23 @@ class CycleGANModel(BaseModel):
 
 
         out0_f_A, _, out2_f_A, out3_f_A, _  = self.calculate_Features(self.fake_A, 'layer')
-        concat_fake_A = torch.cat([self.upsample(out3_f_A[:,0:2,:]), self.upsample(out2_f_A[:,0:2,:])], 1)
-        concat_fake_A = torch.cat([self.fake_A, concat_fake_A], 1)
 
-        self.loss_G_B_G = self.criterionGAN(self.netD_B_G(concat_fake_A), True)
-        self.loss_G_B_L = self.criterionGAN(self.netD_B(concat_fake_A), True)
+
+        concat_fake_A_G = torch.cat([self.upsample_G(out3_f_A[:,:,:]), self.upsample_G(out2_f_A[:,:,:])], 1)
+        concat_fake_A_G = torch.cat([self.avg_pool_disc(self.fake_A), concat_fake_A_G], 1)
+        self.loss_G_B_G = self.criterionGAN(self.netD_B_G(concat_fake_A_G), True)
+
+
+        concat_fake_A_L = torch.cat([self.upsample(out3_f_A[:,:,:]), self.upsample(out2_f_A[:,:,:])], 1)
+        concat_fake_A_L = torch.cat([self.fake_A, concat_fake_A_L], 1)
+        self.loss_G_B_L = self.criterionGAN(self.netD_B(concat_fake_A_L), True)
 
         
 
 
-        const_aux = max(epoch,self.opt.n_epochs)-self.opt.n_epochs
-        const=const_aux/self.opt.n_epochs_decay*0.4
-        self.loss_G_B = self.loss_G_B_G * (0.7 - const) + self.loss_G_B_L * (0.3 + const)
+        #const_aux = max(epoch,self.opt.n_epochs)-self.opt.n_epochs
+        #const=const_aux/self.opt.n_epochs_decay*0.4
+        self.loss_G_B = self.loss_G_B_G * (0.5) + self.loss_G_B_L * (0.5)
         #self.loss_G_B  = self.loss_G_B_L
 
 
