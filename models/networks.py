@@ -655,6 +655,13 @@ class NLayerDiscriminator(nn.Module):
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True)
             ]
+        if(alternate):
+            print("----------------------------alternate-----------------------------")
+            sequence += [
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
+                norm_layer(ndf * nf_mult),
+                nn.LeakyReLU(0.2, True)
+            ]
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
         sequence += [
@@ -1116,7 +1123,7 @@ class VGG19(nn.Module):
             
         self.conv2=nn.Conv2d(64,64, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu2=nn.ReLU(inplace=True)
-        self.max1=nn.AvgPool2d(kernel_size=7, stride=2)
+        self.max1=nn.AvgPool2d(kernel_size=5, stride=2)
         #128
 
             
