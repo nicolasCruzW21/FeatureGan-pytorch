@@ -243,7 +243,7 @@ Our code is inspired by [pytorch-DCGAN](https://github.com/pytorch/examples/tree
 
 
 
-python train.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_256 --load_size 296 --crop_size 256 --lr 0.00005 --n_epochs 20 --n_epochs_decay 300 --print_freq 200 --display_freq 200 --lambda_identity 0.0 --continue_train --epoch 60
+python train.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_256 --load_size 580 --crop_size 512 --lr 0.00005 --n_epochs 200 --n_epochs_decay 200 --print_freq 50 --display_freq 50 --lambda_identity 0.0
 
 
 python test.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_128 --num_test 860 --load_size 256 --epoch 135

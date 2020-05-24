@@ -89,11 +89,11 @@ def get_transform(opt, params=None, grayscale=False, rotate = False, method=Imag
     elif 'scale_width' in opt.preprocess:
         transform_list.append(transforms.Lambda(lambda img: __scale_width(img, opt.load_size, opt.crop_size, method)))
     if(rotate):
-        theta = 7
+        theta = 6
         print("rotation activated", theta)
         transform_list.append(transforms.RandomRotation(theta, resample= 2, expand=True, center=None, fill=None))
         thetaRad = theta * math.pi/180.0
-        h = opt.load_size - 2 * 9 #opt.load_size * math.sin(thetaRad)
+        h = opt.load_size - 2 * 10 #opt.load_size * math.sin(thetaRad)
         transform_list.append(transforms.CenterCrop(h))
 
     if 'crop' in opt.preprocess:

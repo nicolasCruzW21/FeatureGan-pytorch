@@ -61,21 +61,16 @@ class CycleGANModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-<<<<<<< HEAD
-        self.loss_names = ['D_B', 'D_B_G', 'G_B', 'G_B_L','G_B_G', 'F_B', 'F_B_ImageLayer', 'G']
-=======
-        self.loss_names = ['D_B', 'D_B_G', 'G_B', 'G_B_L','G_B_G', 'F_B', 'F_B_field', 'F_B_ImageLayer', 'F_B_shirt', 'background_penalization', 'G']
->>>>>>> a04f2a65f4fa566137bd1f8f29fbadd6ea1a0539
+
+        self.loss_names = ['D_B', 'D_B_G', 'G_B', 'G_B_L','G_B_G', 'F_B', 'F_B_field', 'F_B_ImageLayer', 'F_B_ImageLine', 'F_B_shirt', 'background_penalization', 'G']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         visual_names_A = []
         visual_names_B = ['real_B', 'fake_A']
         if self.isTrain:
             visual_names_A = []
-<<<<<<< HEAD
-            visual_names_B = ['real_A', 'real_B', 'fake_A', 'Image_real_B', 'Image_fake_A']
-=======
-            visual_names_B = ['real_A', 'real_B', 'fake_A', 'norm_field_real_B', 'norm_field_fake_A', 'Image_real_B', 'Image_fake_A', 'shirt_real_B', 'shirt_fake_A', 'back_fake_A', 'greenBack']
->>>>>>> a04f2a65f4fa566137bd1f8f29fbadd6ea1a0539
+
+            visual_names_B = ['real_B', 'fake_A', 'norm_field_real_B', 'norm_field_fake_A', 'Image_real_B', 'Image_fake_A', 'shirt_real_B', 'shirt_fake_A', 'back_fake_A', 'greenBack',       'imageLine_real_B', 'imageLine_fake_A']
+
         if self.isTrain and self.opt.lambda_identity > 0.0:  # if identity loss is used, we also visualize idt_B=G_A(B) ad idt_A=G_A(B)
             print("------------idt is used-------------")
             #visual_names_A.append('idt_B')
@@ -83,7 +78,7 @@ class CycleGANModel(BaseModel):
         self.visual_names = visual_names_A + visual_names_B  # combine visualizations for A and B
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
         if self.isTrain:
-            self.model_names = ['G_B', 'D_B', 'D_B_G']
+            self.model_names = ['G_B', 'D_B', 'D_B_M', 'D_B_G']
         else:  # during test time, only load Gs
             self.model_names = ['G_B']
 
@@ -97,7 +92,7 @@ class CycleGANModel(BaseModel):
 
         #self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
                                         #not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        self.netG_B = networks.define_G(3, opt.input_nc, opt.ngf, opt.netG, opt.norm,
+        self.netG_B = networks.define_G(6, opt.input_nc, opt.ngf, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
@@ -111,19 +106,19 @@ class CycleGANModel(BaseModel):
 
 
             self.netD_B = networks.define_D(387, 72, "n_layers", 
-                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
+                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
 
             self.netD_B_M = networks.define_D(387, 72, "n_layers", 
-                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
+                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
 
             self.netD_B_G = networks.define_D(387, 72, "n_layers", 
-                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
+                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
 
             self.netF = networks.define_F(self.gpu_ids)
  
 
         self.backgroundFactor = 0.15
-        self.foregroundFactor = 0.04 
+        self.foregroundFactor = 0.05 
         self.bound_back = 0.0
         self.bound_back_div = -0.05
         self.lay0 = torch.nn.InstanceNorm2d(3, affine=True).cuda()
@@ -138,21 +133,19 @@ class CycleGANModel(BaseModel):
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
 
             
-            factorField = 6
+            factorField = 12/1000000
             self.factorBack = 1
             factoShirt = 1/100
             factorImage = 4/10000
+            factorLines = 4/10000
                 
             
-<<<<<<< HEAD
-            self.criterionFeatureField = networks.FeatureLoss(5.2*factorField*10 , 10.8*factorField, 0.8*factorField, "MSE").to(self.device)
-            self.criterionFeatureImage =      networks.FeatureLoss(5.2*factorImage ,      10.8*factorImage,      0.8*factorImage,      "L1").to(self.device)
-=======
-            self.criterionFeatureField = networks.FeatureLoss(5.2*factorField , 10.8*factorField, 0.8*factorField, "MSE").to(self.device)
+
+            self.criterionFeatureField = networks.FeatureLoss(5.2*factorField , 10.8*factorField, 0.8*factorField, "L1").to(self.device)
             self.criterionFeatureImage =      networks.FeatureLoss(5.2*factorImage ,      10.8*factorImage,      0.8*factorImage,      "MSE").to(self.device)
+            self.criterionFeatureLines =      networks.FeatureLoss(5.2*factorLines ,      10.8*factorLines,      0.8*factorLines,      "MSE").to(self.device)
 
             self.criterionFeatureShirt =      networks.FeatureLoss(5.2*factoShirt ,      10.8*factoShirt,      0.8*factoShirt,      "L1").to(self.device)
->>>>>>> a04f2a65f4fa566137bd1f8f29fbadd6ea1a0539
             #self.criterionFeature = networks.FeatureLoss(1000000 , 1000000, 1000000, 1).to(self.device)
 
             self.criterionL1 = torch.nn.L1Loss()
@@ -293,20 +286,25 @@ class CycleGANModel(BaseModel):
 #imageAux.unsqueeze(0), imageAuxTen.unsqueeze(0), field.unsqueeze(0), fieldTen.unsqueeze(0), background.unsqueeze(0), backGroundTen.unsqueeze(0), shirt.unsqueeze(0), shirtTen.unsqueeze(0)
 
 
-        imageAux_real_B, imageAuxTen, field_real_B, fieldTen, back_real_B, backGroundTen, shirt_real_B, shirtTen = self.get_field_robot_line_goal_background_images(self.real_B,self.real_B)
-        imageAux_fake_A, _          , field_fake_A, _       , back_fake_A, _            , shirt_fake_A, _        = self.get_field_robot_line_goal_background_images(self.fake_A,self.real_B)
+        imageAux_real_B, imageAuxTen, field_real_B, fieldTen, back_real_B, backGroundTen, shirt_real_B, shirtTen, imageLine_real_B, lineTen = self.get_field_robot_line_goal_background_images(self.real_B,self.real_B)
+        imageAux_fake_A, _          , field_fake_A, _       , back_fake_A, _            , shirt_fake_A,        _, imageLine_fake_A, _        = self.get_field_robot_line_goal_background_images(self.fake_A,self.real_B)
  
 
 
 #------------------------------------------field---------------------------------
 
-        self.norm_field_fake_A = self.lay0(field_fake_A)
-        self.norm_field_real_B = self.lay0(field_real_B)
+        self.norm_field_fake_A = self.lay1(field_fake_A)
+        self.norm_field_real_B = self.lay1(field_real_B)
 
-        _, out7_r_B, _, out14_r_B, out23_r_B  = self.calculate_Features(self.norm_field_real_B, 'instance')
-        _, out7_f_A, _, out14_f_A, out23_f_A  = self.calculate_Features(self.norm_field_fake_A, 'instance')
+        _, out7_r_B, _, out14_r_B, out23_r_B  = self.calculate_Features(self.norm_field_real_B, 'layer')
+        _, out7_f_A, _, out14_f_A, out23_f_A  = self.calculate_Features(self.norm_field_fake_A, 'layer')
 
-        self.loss_F_B_field, self.loss_E1_field, self.loss_E2_field, self.loss_E3_field= self.criterionFeatureField(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)
+        sumFieldTen = torch.sum(fieldTen).cpu().float().detach().numpy()
+        self.loss_F_B_field = 0
+        if(sumFieldTen!=0):
+            self.loss_F_B_field, _, _, _= self.criterionFeatureField(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)/sumFieldTen
+
+        
 
 
 
@@ -316,7 +314,7 @@ class CycleGANModel(BaseModel):
         self.back_real_B = back_real_B
 
 
-#--------------------------------robot/lines-----------------------------------------
+#--------------------------------robot/goal-----------------------------------------
         
 
         self.Image_fake_A = imageAux_fake_A
@@ -332,6 +330,23 @@ class CycleGANModel(BaseModel):
 
         if(sumimageAuxTen!=0):
             self.loss_F_B_ImageLayer, _, _, _= self.criterionFeatureImage(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)/sumimageAuxTen
+#--------------------------------lines-----------------------------------------
+        
+
+        self.imageLine_fake_A = self.lay1(imageLine_fake_A)
+        self.imageLine_real_B = self.lay1(imageLine_real_B)
+        _, out7_r_B, _, out14_r_B, out23_r_B  = self.calculate_Features(imageLine_real_B, 'layer')#poner le fondo de real B en fake A para la normalizacion
+        _, out7_f_A, _, out14_f_A, out23_f_A  = self.calculate_Features(imageLine_fake_A, 'layer')
+
+
+
+        
+        sumimageLineTen = torch.sum(lineTen).cpu().float().detach().numpy()
+        self.loss_F_B_ImageLine = 0
+
+        if(sumimageLineTen!=0):
+            self.loss_F_B_ImageLine, _, _, _= self.criterionFeatureLines(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)/sumimageLineTen
+
 
 #--------------------------------shirt-----------------------------------------
         
@@ -367,7 +382,7 @@ class CycleGANModel(BaseModel):
 
         #const_aux = max(epoch,self.opt.n_epochs)-self.opt.n_epochs
         #const=const_aux/self.opt.n_epochs_decay*0.4
-        self.loss_G_B = self.loss_G_B_G * 1/3 + self.loss_G_B_L * 1/3 + self.loss_G_B_M * 1/3
+        self.loss_G_B = self.loss_G_B_G * 1/4 + self.loss_G_B_L * 1/4 + self.loss_G_B_M * 2/4
         #self.loss_G_B  = self.loss_G_B_L
 
 
@@ -381,9 +396,9 @@ class CycleGANModel(BaseModel):
 
 #--------------------------------Total------------------------------------------------------
 
-        self.loss_F_B = self.loss_F_B_field + self.loss_F_B_ImageLayer + self.loss_F_B_shirt
+        self.loss_F_B = self.loss_F_B_field + self.loss_F_B_ImageLayer + self.loss_F_B_shirt + self.loss_F_B_ImageLine
         # combined loss and calculate gradients
-        self.loss_G = self.loss_G_B + self.loss_F_B      # + self.loss_background_penalization
+        self.loss_G = self.loss_G_B + self.loss_F_B  + self.loss_background_penalization
         self.loss_G.backward()
 
 
@@ -401,7 +416,6 @@ class CycleGANModel(BaseModel):
         # D_A and D_B
         self.set_requires_grad([self.netD_B, self.netD_B_G], True)
         self.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
-        self.optimizer_D_G.zero_grad()   # set D_A and D_B's gradients to zero
         #self.backward_D_A()      # calculate gradients for D_A
         self.backward_D_B()      # calculate graidents for D_B
         self.optimizer_D.step()  # update D_A and D_B's weights
@@ -712,7 +726,39 @@ class CycleGANModel(BaseModel):
         notShirt = ~shirtTen
         shirt = shirtTen*image
 
+        #----------------------------------------lines-----------------------------------------------
 
+
+        R = 224 * 2.0 / 255.0
+        R = R - 1
+        G = 224 * 2.0 / 255.0
+        G = G - 1
+        B = 215 * 2.0 / 255.0
+        B = B - 1
+
+        #R
+        aaa = self.ones*R
+        channelR = label[0,:,:]
+        substraction = torch.abs(channelR - aaa)
+        booleanTenR = substraction <self.foregroundFactor
+     
+        #G
+        aaa = self.ones*G
+        channelG = label[1,:,:]
+        substraction = torch.abs(channelG - aaa)
+        booleanTenG = substraction <self.foregroundFactor
+
+        #B
+        aaa = self.ones*B
+        channelB = label[2,:,:]
+        substraction = torch.abs(channelB - aaa)
+        booleanTenB = substraction <self.foregroundFactor
+        
+
+        lineTen = booleanTenR * booleanTenG * booleanTenB
+        notLineTen = ~fieldTen
+
+#------------------------------------------shirt--------------------------------------------------------
 
 
 
@@ -725,7 +771,9 @@ class CycleGANModel(BaseModel):
         imageAuxTen = notbackGroundTen * notFieldTen * notShirt
 
         imageAux = image * imageAuxTen + label * fieldTen - self.ones * backGroundTen
-        return imageAux.unsqueeze(0), imageAuxTen.unsqueeze(0), field.unsqueeze(0), fieldTen.unsqueeze(0), background.unsqueeze(0), backGroundTen.unsqueeze(0), shirt.unsqueeze(0), shirtTen.unsqueeze(0)
+
+        imageLine = image * lineTen
+        return imageAux.unsqueeze(0), imageAuxTen.unsqueeze(0), field.unsqueeze(0), fieldTen.unsqueeze(0), background.unsqueeze(0), backGroundTen.unsqueeze(0), shirt.unsqueeze(0), shirtTen.unsqueeze(0), imageLine.unsqueeze(0), lineTen.unsqueeze(0)
 
 
 
