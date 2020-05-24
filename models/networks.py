@@ -657,6 +657,8 @@ class NLayerDiscriminator(nn.Module):
             ]
         if(alternate):
             print("----------------------------alternate-----------------------------")
+            nf_mult_prev = nf_mult
+            nf_mult = min(2 ** n_layers, 8)
             sequence += [
                 nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
@@ -686,7 +688,7 @@ class NLayerDiscriminator(nn.Module):
         newInput = torch.cat([input[:,0:3,:], squeezed], 1)
 
 
-        return self.model(newInput)
+        return self.model(newInput), squeezed
 
 
 class NLayerPyramidDiscriminator(nn.Module):

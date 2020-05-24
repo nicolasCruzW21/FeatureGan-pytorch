@@ -67,7 +67,7 @@ class CycleGANModel(BaseModel):
         visual_names_B = ['real_B', 'fake_A']
         if self.isTrain:
             visual_names_A = []
-            visual_names_B = ['real_A', 'real_B', 'fake_A', 'Image_real_B', 'Image_fake_A']
+            visual_names_B = ['real_A','real_B', 'fake_A','fake_A_D','squeeze_real_1', 'squeeze_real_2','squeeze_fake_1','squeeze_fake_2']
         if self.isTrain and self.opt.lambda_identity > 0.0:  # if identity loss is used, we also visualize idt_B=G_A(B) ad idt_A=G_A(B)
             print("------------idt is used-------------")
             #visual_names_A.append('idt_B')
@@ -103,13 +103,13 @@ class CycleGANModel(BaseModel):
 
 
             self.netD_B = networks.define_D(387, 72, "n_layers", 
-                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
+                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, True)
 
             self.netD_B_M = networks.define_D(387, 72, "n_layers", 
-                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
+                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, True)
 
-            self.netD_B_G = networks.define_D(387, 72, "n_layers", 
-                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
+            self.netD_B_G= networks.define_D(387, 72, "n_layers", 
+                                            2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, True)
 
             self.netF = networks.define_F(self.gpu_ids)
  
@@ -130,13 +130,11 @@ class CycleGANModel(BaseModel):
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
 
             
-            factorField = 6
             self.factorBack = 1
             #factor = 6
-            factorImage = 2
+            factorImage = 10
                 
             
-            self.criterionFeatureField = networks.FeatureLoss(5.2*factorField*10 , 10.8*factorField, 0.8*factorField, "MSE").to(self.device)
             self.criterionFeatureImage =      networks.FeatureLoss(5.2*factorImage ,      10.8*factorImage,      0.8*factorImage,      "L1").to(self.device)
             #self.criterionFeature = networks.FeatureLoss(1000000 , 1000000, 1000000, 1).to(self.device)
 
@@ -218,13 +216,19 @@ class CycleGANModel(BaseModel):
         We also call loss_D.backward() to calculate the gradients.
         """
         # Real
+        pred_real, squeeze_real = netD(real)
         
-        pred_real = netD(real)
         loss_D_real = self.criterionGAN(pred_real, True)
+        self.squeeze_real_1 = self.lay1(self.upsample(squeeze_real[:,0:3, :]))
+        self.squeeze_real_2 = self.lay1(self.upsample(squeeze_real[:,3:6, :]))
         
         # Fake
-        pred_fake = netD(fake.detach())
+        pred_fake, squeeze_fake = netD(fake.detach())
         loss_D_fake = self.criterionGAN(pred_fake, False)
+        self.squeeze_fake_1 = self.lay1(self.upsample(squeeze_fake[:,0:3, :]))
+        self.squeeze_fake_2 = self.lay1(self.upsample(squeeze_fake[:,3:6, :]))
+
+        #print('---------------------', self.squeeze_fake_1.size())
         
         # Combined loss and calculate gradients
         
@@ -242,6 +246,7 @@ class CycleGANModel(BaseModel):
     def backward_D_B(self):
         """Calculate GAN loss for discriminator D_B"""
         fake_A = self.fake_A_pool.query(self.fake_A)
+        self.fake_A_D = fake_A
         PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(fake_A)))
         fake_A = util.im2tensor(np.array(PIL_fake_A_Jitter))
 
@@ -258,12 +263,11 @@ class CycleGANModel(BaseModel):
         concat_real_A = torch.cat([self.upsample(out3_r_A[:,:,:]), self.upsample(out2_r_A[:,:,:])], 1)
         concat_real_A = torch.cat([real_A, concat_real_A], 1)
 
+        self.loss_D_B_G = self.backward_D_basic(self.netD_B_G, self.avg_pool_disc(self.avg_pool_disc(concat_real_A)), self.avg_pool_disc(self.avg_pool_disc(concat_fake_A)))
 
         self.loss_D_B = self.backward_D_basic(self.netD_B, concat_real_A, concat_fake_A)
 
         self.loss_D_B_M = self.backward_D_basic(self.netD_B_M, self.avg_pool_disc(concat_real_A), self.avg_pool_disc(concat_fake_A))
-
-        self.loss_D_B_G = self.backward_D_basic(self.netD_B_G, self.avg_pool_disc(self.avg_pool_disc(concat_real_A)), self.avg_pool_disc(self.avg_pool_disc(concat_fake_A)))
 
 
     def calculate_Features(self, image, normalize = 'none'):
@@ -283,30 +287,6 @@ class CycleGANModel(BaseModel):
         #--------------------------------cycle B------------------------------------------------------
 
 
-
-        #imageAux_real_B, field_real_B, back_real_B, backGroundTen, fieldTen = self.get_field_robot_line_goal_background_images(self.real_B,self.real_B)
-        #imageAux_fake_A, field_fake_A, back_fake_A, _, _ = self.get_field_robot_line_goal_background_images(self.fake_A,self.real_B)
-
-
-#------------------------------------------field---------------------------------
-
-        #self.norm_field_fake_A = self.lay0(field_fake_A)
-        #self.norm_field_real_B = self.lay0(field_real_B)
-
-        #_, out7_r_B, _, out14_r_B, out23_r_B  = self.calculate_Features(self.norm_field_real_B, 'instance')
-        #_, out7_f_A, _, out14_f_A, out23_f_A  = self.calculate_Features(self.norm_field_fake_A, 'instance')
-
-        #self.loss_F_B_field, self.loss_E1_field, self.loss_E2_field, self.loss_E3_field= self.criterionFeatureField(out7_r_B, out14_r_B, out23_r_B, out7_f_A, out14_f_A, out23_f_A)
-
-
-
-#--------------------------------back-----------------------------------------
-
-        #self.back_fake_A = back_fake_A
-        #self.back_real_B = back_real_B
-
-
-#--------------------------------fullImage-----------------------------------------
         
 
         self.Image_fake_A = self.lay0(self.fake_A)
@@ -326,18 +306,20 @@ class CycleGANModel(BaseModel):
         concat_fake_A = torch.cat([self.upsample(out3_f_A[:,:,:]), self.upsample(out2_f_A[:,:,:])], 1)
         concat_fake_A = torch.cat([self.fake_A, concat_fake_A], 1)
 
+        a, _ = self.netD_B(concat_fake_A)
+        b, _ =self.netD_B_M(self.avg_pool_disc(concat_fake_A))
+        c, _ = self.netD_B_G(self.avg_pool_disc(self.avg_pool_disc(concat_fake_A)))
 
-
-        self.loss_G_B_L = self.criterionGAN(self.netD_B(concat_fake_A), True)
-        self.loss_G_B_M = self.criterionGAN(self.netD_B_M(self.avg_pool_disc(concat_fake_A)), True)
-        self.loss_G_B_G = self.criterionGAN(self.netD_B_G(self.avg_pool_disc(self.avg_pool_disc(concat_fake_A))), True)
+        self.loss_G_B_L = self.criterionGAN(a, True)
+        self.loss_G_B_M = self.criterionGAN(b, True)
+        self.loss_G_B_G = self.criterionGAN(c, True)
 
         
 
 
         #const_aux = max(epoch,self.opt.n_epochs)-self.opt.n_epochs
         #const=const_aux/self.opt.n_epochs_decay*0.4
-        self.loss_G_B = self.loss_G_B_G * 1/3 + self.loss_G_B_L * 1/3 + self.loss_G_B_M * 1/3
+        self.loss_G_B = self.loss_G_B_G * 1/4 + self.loss_G_B_L * 1/4 + self.loss_G_B_M * 2/4
         #self.loss_G_B  = self.loss_G_B_L
 
 

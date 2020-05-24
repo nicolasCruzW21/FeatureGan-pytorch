@@ -243,6 +243,8 @@ Our code is inspired by [pytorch-DCGAN](https://github.com/pytorch/examples/tree
 
 
 
+python train.py --dataroot ./datasets/horse2elephant --name maps_cyclegan --model cycle_gan --netG resnet_9blocks --load_size 296 --crop_size 256 --lr 0.0001 --n_epochs 100 --n_epochs_decay 100 --print_freq 50 --display_freq 50 --lambda_identity 0.0
+
 python train.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_256 --load_size 296 --crop_size 256 --lr 0.00005 --n_epochs 20 --n_epochs_decay 300 --print_freq 200 --display_freq 200 --lambda_identity 0.0 --continue_train --epoch 60
 
 
