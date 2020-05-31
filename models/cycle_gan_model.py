@@ -200,6 +200,9 @@ class CycleGANModel(BaseModel):
             #self.fake_A_array = self.netG_B(self.add_background_foreground_channel(self.real_B, self.real_B))# G_B(B)
             self.fake_A_array = self.netG_B(self.real_B)# G_B(B)
             self.fake_A = (self.fake_A_array[0,:]).unsqueeze(0)
+            
+            #traced_script_module = torch.jit.trace(self.netG_B, self.real_B)
+            #traced_script_module.save("traced_unet_256.pt")
 
             #self.rec_B = self.netG_A(self.fake_A)# G_A(G_B(B))
 
