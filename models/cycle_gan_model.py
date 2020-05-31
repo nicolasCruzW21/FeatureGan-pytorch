@@ -118,7 +118,7 @@ class CycleGANModel(BaseModel):
  
 
         self.backgroundFactor = 0.15
-        self.foregroundFactor = 0.05 
+        self.foregroundFactor = 0.15 
         self.bound_back = 0.0
         self.bound_back_div = -0.05
         self.lay0 = torch.nn.InstanceNorm2d(3, affine=True).cuda()
@@ -189,6 +189,14 @@ class CycleGANModel(BaseModel):
         self.real_B = input['B' if AtoB else 'A'].to(self.device)
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
+    def infer(self, image):
+        image = image* 2.0 / 255.0-1
+        real_B_channels = self.add_background_field_channel(image, image)
+        fake_A_array = self.netG_B.module(real_B_channels)# G_B(B)
+        fake_A = ((fake_A_array[0,:]).unsqueeze(0).cpu().float() + 1)/ 2.0 * 255.0
+        #fake_A = min(max(fake_A, 0.0), 255.0)
+        return fake_A
+
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         if self.isTrain:
@@ -200,12 +208,17 @@ class CycleGANModel(BaseModel):
             self.fake_A = (self.fake_A_array[0,:]).unsqueeze(0)
 
         else:
+
             self.real_B_channels = self.add_background_field_channel(self.real_B, self.real_B)
-            
             self.fake_A_array = self.netG_B(self.real_B_channels)# G_B(B)
+
             self.fake_A = (self.fake_A_array[0,:]).unsqueeze(0)
 
-            #self.rec_B = self.netG_A(self.fake_A)# G_A(G_B(B))
+            self.set_requires_grad([self.netG_B], False)
+            
+            traced_script_module = torch.jit.trace(self.infer, self.real_B)
+            traced_script_module.save("traced_unet_256.pt")
+            
 
 
     def backward_D_basic(self, netD, real, fake):
