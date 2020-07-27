@@ -69,7 +69,7 @@ class CycleGANModel(BaseModel):
         if self.isTrain:
             visual_names_A = []
 
-            visual_names_B = ['real_B', 'fake_A', 'norm_field_real_B', 'norm_field_fake_A', 'Image_real_B', 'Image_fake_A', 'shirt_real_B', 'shirt_fake_A', 'back_fake_A', 'greenBack',       'imageLine_real_B', 'imageLine_fake_A']
+            visual_names_B = ['real_B', 'fake_A','fake_A_D', 'norm_field_real_B', 'norm_field_fake_A', 'Image_real_B', 'Image_fake_A', 'shirt_real_B', 'shirt_fake_A', 'back_fake_A', 'greenBack',       'imageLine_real_B', 'imageLine_fake_A','squeeze_real_1', 'squeeze_real_2','squeeze_fake_1','squeeze_fake_2']
 
         if self.isTrain and self.opt.lambda_identity > 0.0:  # if identity loss is used, we also visualize idt_B=G_A(B) ad idt_A=G_A(B)
             print("------------idt is used-------------")
@@ -234,13 +234,17 @@ class CycleGANModel(BaseModel):
         """
         # Real
         
-        pred_real = netD(real)
+        pred_real, squeeze_real = netD(real)
         loss_D_real = self.criterionGAN(pred_real, True)
         
+        self.squeeze_real_1 = self.lay1(self.upsample(squeeze_real[:,0:3, :]))
+        self.squeeze_real_2 = self.lay1(self.upsample(squeeze_real[:,3:6, :]))
         # Fake
-        pred_fake = netD(fake.detach())
+        pred_fake, squeeze_fake = netD(fake.detach())
         loss_D_fake = self.criterionGAN(pred_fake, False)
         
+        self.squeeze_fake_1 = self.lay1(self.upsample(squeeze_fake[:,0:3, :]))
+        self.squeeze_fake_2 = self.lay1(self.upsample(squeeze_fake[:,3:6, :]))
         # Combined loss and calculate gradients
         
         loss_D = (loss_D_real + loss_D_fake) * 0.5
@@ -257,6 +261,7 @@ class CycleGANModel(BaseModel):
     def backward_D_B(self):
         """Calculate GAN loss for discriminator D_B"""
         fake_A = self.fake_A_pool.query(self.fake_A)
+        self.fake_A_D = fake_A
         PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(fake_A)))
         fake_A = util.im2tensor(np.array(PIL_fake_A_Jitter))
 
@@ -385,10 +390,17 @@ class CycleGANModel(BaseModel):
         concat_fake_A = torch.cat([self.fake_A, concat_fake_A], 1)
 
 
+        a, _ = self.netD_B(concat_fake_A)
+        b, _ =self.netD_B_M(self.avg_pool_disc(concat_fake_A))
+        c, _ = self.netD_B_G(self.avg_pool_disc(self.avg_pool_disc(concat_fake_A)))
 
-        self.loss_G_B_L = self.criterionGAN(self.netD_B(concat_fake_A), True)
-        self.loss_G_B_M = self.criterionGAN(self.netD_B_M(self.avg_pool_disc(concat_fake_A)), True)
-        self.loss_G_B_G = self.criterionGAN(self.netD_B_G(self.avg_pool_disc(self.avg_pool_disc(concat_fake_A))), True)
+        self.loss_G_B_L = self.criterionGAN(a, True)
+        self.loss_G_B_M = self.criterionGAN(b, True)
+        self.loss_G_B_G = self.criterionGAN(c, True)
+
+        #self.loss_G_B_L = self.criterionGAN(self.netD_B(concat_fake_A), True)
+        #self.loss_G_B_M = self.criterionGAN(self.netD_B_M(self.avg_pool_disc(concat_fake_A)), True)
+        #self.loss_G_B_G = self.criterionGAN(self.netD_B_G(self.avg_pool_disc(self.avg_pool_disc(concat_fake_A))), True)
 
         
 
