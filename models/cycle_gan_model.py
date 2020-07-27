@@ -14,16 +14,15 @@ from statistics import mean
 import torch.nn as nn
 
 #TODO: cambiar la textura del piso del field
-class CycleGANModel(BaseModel):
+class FeatureGANModel(BaseModel):
     """
-    This class implements the CycleGAN model, for learning image-to-image translation without paired data.
+    This class implements the FeatureGANModel model, for learning image-to-image translation without paired data.
 
     The model training requires '--dataset_mode unaligned' dataset.
     By default, it uses a '--netG resnet_9blocks' ResNet generator,
     a '--netD basic' discriminator (PatchGAN introduced by pix2pix),
     and a least-square GANs objective ('--gan_mode lsgan').
 
-    CycleGAN paper: https://arxiv.org/pdf/1703.10593.pdf
     """
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
@@ -36,25 +35,15 @@ class CycleGANModel(BaseModel):
         Returns:
             the modified parser.
 
-        For CycleGAN, in addition to GAN losses, we introduce lambda_A, lambda_B, and lambda_identity for the following losses.
-        A (source domain), B (target domain).
-        Generators: G_A: A -> B; G_B: B -> A.
-        Discriminators: D_A: G_A(A) vs. B; D_B: G_B(B) vs. A.
-        Forward cycle loss:  lambda_A * ||G_B(G_A(A)) - A|| (Eqn. (2) in the paper)
-        Backward cycle loss: lambda_B * ||G_A(G_B(B)) - B|| (Eqn. (2) in the paper)
-        Identity loss (optional): lambda_identity * (||G_A(B) - B|| * lambda_B + ||G_B(A) - A|| * lambda_A) (Sec 5.2 "Photo generation from paintings" in the paper)
-        Dropout is not used in the original CycleGAN paper.
         """
-        parser.set_defaults(no_dropout=True)  # default CycleGAN did not use dropout
+        parser.set_defaults(no_dropout=True)
         if is_train:
-            parser.add_argument('--lambda_A', type=float, default=10.0, help='weight for cycle loss (A -> B -> A)')
-            parser.add_argument('--lambda_B', type=float, default=10.0, help='weight for cycle loss (B -> A -> B)')
             parser.add_argument('--lambda_identity', type=float, default=0.5, help='use identity mapping. Setting lambda_identity other than 0 has an effect of scaling the weight of the identity mapping loss. For example, if the weight of the identity loss should be 10 times smaller than the weight of the reconstruction loss, please set lambda_identity = 0.1')
 
         return parser
 
     def __init__(self, opt):
-        """Initialize the CycleGAN class.
+        """Initialize the FeatureGan class.
 
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
@@ -64,17 +53,10 @@ class CycleGANModel(BaseModel):
 
         self.loss_names = ['D_B', 'D_B_G', 'G_B', 'G_B_L','G_B_G', 'F_B', 'F_B_field', 'F_B_ImageLayer', 'F_B_ImageLine', 'F_B_shirt', 'background_penalization', 'G']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        visual_names_A = []
         visual_names_B = ['real_B', 'fake_A']
         if self.isTrain:
-            visual_names_A = []
-
             visual_names_B = ['real_B', 'fake_A','fake_A_D', 'norm_field_real_B', 'norm_field_fake_A', 'Image_real_B', 'Image_fake_A', 'shirt_real_B', 'shirt_fake_A', 'back_fake_A', 'greenBack',       'imageLine_real_B', 'imageLine_fake_A','squeeze_real_1', 'squeeze_real_2','squeeze_fake_1','squeeze_fake_2']
 
-        if self.isTrain and self.opt.lambda_identity > 0.0:  # if identity loss is used, we also visualize idt_B=G_A(B) ad idt_A=G_A(B)
-            print("------------idt is used-------------")
-            #visual_names_A.append('idt_B')
-            visual_names_B.append('idt_A')
         self.visual_names = visual_names_A + visual_names_B  # combine visualizations for A and B
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
         if self.isTrain:
@@ -82,29 +64,16 @@ class CycleGANModel(BaseModel):
         else:  # during test time, only load Gs
             self.model_names = ['G_B']
 
-        # define networks (both Generators and discriminators)
-        # The naming is different from those used in the paper.
-        # Code (vs. paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
-        #self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, 128, opt.netG, opt.norm,
-                                        #not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        #self.netG_B = networks.define_G(opt.output_nc, opt.input_nc * 4, 256, opt.netG, opt.norm,
-                                        #not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-
-        #self.netG_A = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
-                                        #not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
         self.netG_B = networks.define_G(6, opt.input_nc, opt.ngf, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
         self.ones = torch.ones([opt.crop_size,opt.crop_size]).cuda().float()
         self.ones3D = torch.ones([1, opt.crop_size,opt.crop_size]).cuda().float()
-        #self.netG_B = networks.define_G(opt.output_nc, opt.input_nc, opt.ngf, 'cascade', opt.norm, not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
-        if self.isTrain:  # define discriminators
-            #self.netD_A = networks.define_D(opt.output_nc, opt.ndf, "pixel",
-                                            #opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
+        if self.isTrain:
 
-
+            #discriminators at three different scales.
             self.netD_B = networks.define_D(387, 72, "n_layers", 
                                             3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
 
@@ -114,6 +83,7 @@ class CycleGANModel(BaseModel):
             self.netD_B_G = networks.define_D(387, 72, "n_layers", 
                                             3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, False)
 
+            #VGG19 feature extraction network
             self.netF = networks.define_F(self.gpu_ids)
  
 
@@ -125,8 +95,7 @@ class CycleGANModel(BaseModel):
         self.lay1 = torch.nn.LayerNorm([3, opt.crop_size, opt.crop_size], elementwise_affine=False).cuda()
         self.lay2 = torch.nn.LayerNorm([6, opt.crop_size, opt.crop_size], elementwise_affine=False).cuda()
         if self.isTrain:
-            if opt.lambda_identity > 0.0:  # only works when input and output images have the same number of channels
-                assert(opt.input_nc == opt.output_nc)
+
             self.fake_A_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
@@ -149,10 +118,8 @@ class CycleGANModel(BaseModel):
             #self.criterionFeature = networks.FeatureLoss(1000000 , 1000000, 1000000, 1).to(self.device)
 
             self.criterionL1 = torch.nn.L1Loss()
-            self.criterionCycle_B = torch.nn.L1Loss()
-            self.criterionIdt = torch.nn.L1Loss()
-            self.avg_pool = torch.nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
+            self.avg_pool = torch.nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
             self.avg_pool_disc = torch.nn.AvgPool2d(kernel_size=3, stride=2, padding=1)
 
             self.upsample = torch.nn.Upsample(size=opt.crop_size, mode='bilinear')
@@ -192,9 +159,8 @@ class CycleGANModel(BaseModel):
     def infer(self, image):
         image = image* 2.0 / 255.0-1
         real_B_channels = self.add_background_field_channel(image, image)
-        fake_A_array = self.netG_B.module(real_B_channels)# G_B(B)
+        fake_A_array = self.netG_B.module(real_B_channels)
         fake_A = ((fake_A_array[0,:]).unsqueeze(0).cpu().float() + 1)/ 2.0 * 255.0
-        #fake_A = min(max(fake_A, 0.0), 255.0)
         return fake_A
 
     def forward(self):
@@ -203,21 +169,21 @@ class CycleGANModel(BaseModel):
 
             
             self.real_B_channels = self.add_background_field_channel(self.real_B, self.real_B)
-            self.fake_A_array = self.netG_B(self.real_B_channels)# G_B(B)
+            self.fake_A_array = self.netG_B(self.real_B_channels)
 
             self.fake_A = (self.fake_A_array[0,:]).unsqueeze(0)
 
         else:
 
             self.real_B_channels = self.add_background_field_channel(self.real_B, self.real_B)
-            self.fake_A_array = self.netG_B(self.real_B_channels)# G_B(B)
+            self.fake_A_array = self.netG_B(self.real_B_channels)
 
             self.fake_A = (self.fake_A_array[0,:]).unsqueeze(0)
 
             self.set_requires_grad([self.netG_B], False)
             
             traced_script_module = torch.jit.trace(self.infer, self.real_B)
-            traced_script_module.save("traced_unet_256.pt")
+            traced_script_module.save("traced_unet_512.pt")
             
 
 
@@ -250,13 +216,6 @@ class CycleGANModel(BaseModel):
         loss_D = (loss_D_real + loss_D_fake) * 0.5
         loss_D.backward()
         return loss_D
-
-
-    #def backward_D_A(self):
-        """Calculate GAN loss for discriminator D_A"""
-        #fake_B = self.fake_B_pool.query(self.fake_B)
-        #self.loss_D_A = self.backward_D_basic(self.netD_A, self.real_B, fake_B)
-        #self.loss_D_A_G = self.backward_D_basic(self.netD_A_G, self.real_B, fake_B)
 
     def backward_D_B(self):
         """Calculate GAN loss for discriminator D_B"""
@@ -298,10 +257,6 @@ class CycleGANModel(BaseModel):
 
     def backward_G(self,epoch):
         """Calculate the loss for generators G_A and G_B"""
-
-        #--------------------------------cycle B------------------------------------------------------
-
-#imageAux.unsqueeze(0), imageAuxTen.unsqueeze(0), field.unsqueeze(0), fieldTen.unsqueeze(0), background.unsqueeze(0), backGroundTen.unsqueeze(0), shirt.unsqueeze(0), shirtTen.unsqueeze(0)
 
 
         imageAux_real_B, imageAuxTen, field_real_B, fieldTen, back_real_B, backGroundTen, shirt_real_B, shirtTen, imageLine_real_B, lineTen = self.get_field_robot_line_goal_background_images(self.real_B,self.real_B)
@@ -398,24 +353,7 @@ class CycleGANModel(BaseModel):
         self.loss_G_B_M = self.criterionGAN(b, True)
         self.loss_G_B_G = self.criterionGAN(c, True)
 
-        #self.loss_G_B_L = self.criterionGAN(self.netD_B(concat_fake_A), True)
-        #self.loss_G_B_M = self.criterionGAN(self.netD_B_M(self.avg_pool_disc(concat_fake_A)), True)
-        #self.loss_G_B_G = self.criterionGAN(self.netD_B_G(self.avg_pool_disc(self.avg_pool_disc(concat_fake_A))), True)
-
-        
-
-
-        #const_aux = max(epoch,self.opt.n_epochs)-self.opt.n_epochs
-        #const=const_aux/self.opt.n_epochs_decay*0.4
         self.loss_G_B = self.loss_G_B_G * 1/4 + self.loss_G_B_L * 1/4 + self.loss_G_B_M * 2/4
-        #self.loss_G_B  = self.loss_G_B_L
-
-
-#---------------------background--------------------------------
-
-        self.loss_background_penalization = self.penalize_background(back_fake_A, backGroundTen)*8 #self.bound_back
-            #self.loss_background_penalization += self.penalize_background(back_fake_A, 74, 54, 44, ba8ckGroundTen)
-
 
         
 
@@ -423,7 +361,7 @@ class CycleGANModel(BaseModel):
 
         self.loss_F_B = self.loss_F_B_field + self.loss_F_B_ImageLayer + self.loss_F_B_shirt + self.loss_F_B_ImageLine
         # combined loss and calculate gradients
-        self.loss_G = self.loss_G_B + self.loss_F_B  + self.loss_background_penalization
+        self.loss_G = self.loss_G_B + self.loss_F_B
         self.loss_G.backward()
 
 
@@ -434,117 +372,14 @@ class CycleGANModel(BaseModel):
         # G_A and G_B
         self.set_requires_grad([self.netF], False)
 
-        self.set_requires_grad([self.netD_B, self.netD_B_G], False)  # Ds require no gradients when optimizing Gs
+        self.set_requires_grad([self.netD_B, self.netD_B_G, self.netD_B_M], False)  # Ds require no gradients when optimizing Gs
         self.optimizer_G.zero_grad()  # set G_A and G_B's gradients to zero
         self.backward_G(epoch)             # calculate gradients for G_A and G_B
         self.optimizer_G.step()       # update G_A and G_B's weights
-        # D_A and D_B
-        self.set_requires_grad([self.netD_B, self.netD_B_G], True)
+        self.set_requires_grad([self.netD_B, self.netD_B_G, self.netD_B_M], True)
         self.optimizer_D.zero_grad()   # set D_A and D_B's gradients to zero
-        #self.backward_D_A()      # calculate gradients for D_A
         self.backward_D_B()      # calculate graidents for D_B
         self.optimizer_D.step()  # update D_A and D_B's weights
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def penalize_background(self, image, backGroundTen):
-        image = image.squeeze(0)
-        image = self.avg_pool(image)
-        back = backGroundTen.squeeze(0)
-        #R = Rin * 2.0 / 255.0
-        #R = R - 1
-        G = 75 * 2.0 / 255.0
-        G2 = 140 * 2.0 / 255.0
-        #G = G - 1
-        #B = Bin * 2.0 / 255.0
-        #B = B - 1
-
-        GR = 1.1#G/R
-        GB = 1.3#G/B
-        #print(GR, GB)
-        channelG = image[1,:,:]+self.ones
-        #R
-        aaa = self.ones*GR
-        channelR = image[0,:,:]+self.ones
-        division = channelG/channelR - aaa
-        
-        booleanTenR = division > self.bound_back_div#0.02
-     
-        #G
-        aaa = self.ones*G
-        #substraction = torch.abs(channelG - aaa)
-        booleanTenG = channelG > aaa + self.bound_back#0.02
-
-        #G
-        aaa = self.ones*G2
-        #substraction = torch.abs(channelG - aaa)
-        booleanTenG2 = channelG < aaa - self.bound_back#0.02
-        
-
-        #B
-        aaa = self.ones*GB
-        channelB = image[2,:,:]+self.ones
-        division = channelG/channelB - aaa
-        booleanTenB = division > self.bound_back_div#0.02
-
-        boolBadG = booleanTenR & booleanTenB & backGroundTen & booleanTenG & booleanTenG2
-
-
-
-        #R = Rin * 2.0 / 255.0
-        #R = R - 1
-        R = 80 * 2.0 / 255.0
-        #G = G - 1
-        #B = Bin * 2.0 / 255.0
-        #B = B - 1
-
-        RG = 1.5#G/R
-        RB = 1.5#G/B
-        #print(GR, GB)
-        channelR = image[0,:,:]+self.ones
-        #G
-        aaa = self.ones*RG
-        channelG = image[1,:,:]+self.ones
-        division = channelR/channelG - aaa
-        
-        booleanTenG = division > self.bound_back_div#0.02
-     
-        #R
-        aaa = self.ones*R
-        #substraction = torch.abs(channelG - aaa)
-        booleanTenR = channelR > aaa + self.bound_back#0.02
-
-        #B
-        aaa = self.ones*RB
-        channelB = image[2,:,:]+self.ones
-        division = channelR/channelB - aaa
-        booleanTenB = division > self.bound_back_div#0.02
-
-        boolBadR = booleanTenR & booleanTenB & backGroundTen & booleanTenG
-
-        boolBad = boolBadG | boolBadR
-        
-        sumboolBad = torch.sum(boolBad).cpu().float().detach().numpy()
-        
-        sumboolBack = torch.sum(backGroundTen).cpu().float().detach().numpy()
-        greenBack = image*boolBad
-        self.greenBack = greenBack.unsqueeze(0)
-        if(sumboolBack==0):
-            return 0
-        return sumboolBad/(sumboolBack)
 
 
 
@@ -579,14 +414,8 @@ class CycleGANModel(BaseModel):
         
 
         backGroundTen = booleanTenR * booleanTenG * booleanTenB
-        #print("sum gT------------------",torch.sum(gT).cpu().float().detach().numpy())
         notbackGroundTen = ~backGroundTen
-        #print("sum ngT------------------",torch.sum(ngT).cpu().float().detach().numpy())
-
-        #foreground = image * notbackGroundTen
-        #print("foreground",foreground.size())
         background = self.ones * backGroundTen
-        #print("background",background.size())
         
 
         
@@ -621,26 +450,12 @@ class CycleGANModel(BaseModel):
         
 
         fieldTen = booleanTenR * booleanTenG * booleanTenB
-        #print("sum fieldTen------------------",torch.sum(fieldTen).cpu().float().detach().numpy())
         notFieldTen = ~fieldTen
-        #print("sum ngT------------------",torch.sum(ngT).cpu().float().detach().numpy())
-
-
-
         robots_goal_lines = self.ones * notFieldTen * notbackGroundTen
-        #print("foreground",foreground.size())
         field = self.ones * fieldTen
-
-
-        #print("background",background.size())
-        
         finalImage = torch.cat((robots_goal_lines.unsqueeze(0), image),0)  
-
         finalImage = torch.cat((background.unsqueeze(0), finalImage),0)  
-        #image_background_channel = background.unsqueeze(0)
-
         finalImage = torch.cat((field.unsqueeze(0), finalImage),0)
-        
         finalImage = finalImage.unsqueeze(0)
         return finalImage
 
@@ -672,16 +487,9 @@ class CycleGANModel(BaseModel):
         substraction = torch.abs(channelB - aaa)
         booleanTenB = substraction <self.backgroundFactor
         
-
         backGroundTen = booleanTenR * booleanTenG * booleanTenB
-        #print("sum gT------------------",torch.sum(gT).cpu().float().detach().numpy())
         notbackGroundTen = ~backGroundTen
-        #print("sum ngT------------------",torch.sum(ngT).cpu().float().detach().numpy())
-
-        #foreground = image * notbackGroundTen
-        #print("foreground",foreground.size())
         background = image * backGroundTen
-        #print("background",background.size())
         
 
         
@@ -785,11 +593,6 @@ class CycleGANModel(BaseModel):
 
 #------------------------------------------shirt--------------------------------------------------------
 
-
-
-        #robots_goal_lines = image * notFieldTen * notbackGroundTen * notShirt
-        #robots_goal_lines = robots_goal_lines - self.ones * fieldTen - self.ones * backGroundTen
-        #print("foreground",foreground.size())
         field = image * fieldTen
         field = field - self.ones * notFieldTen
 
@@ -832,9 +635,7 @@ class CycleGANModel(BaseModel):
         booleanTenB = substraction < bound#0.02
 
         boolBack = booleanTenR * booleanTenG * booleanTenB
-        #print("sum boolBack------------------",torch.sum(boolBack).cpu().float().detach().numpy())
         boolFront = ~boolBack
-        #print("sum ngT------------------",torch.sum(ngT).cpu().float().detach().numpy())
         
 
         back = torch.cat(((self.ones*R).unsqueeze(0), (self.ones*G).unsqueeze(0), (self.ones*B).unsqueeze(0)),0)
@@ -880,13 +681,9 @@ class CycleGANModel(BaseModel):
         booleanTenB = substraction < bound#0.02
 
         boolBack = booleanTenR * booleanTenG * booleanTenB
-        #print("sum boolBack------------------", torch.sum(boolBack).cpu().float().detach().numpy())
         boolFront = ~boolBack
-        #print("sum ngT------------------",torch.sum(ngT).cpu().float().detach().numpy())
         
-
-        back = torch.cat(((self.ones*R).unsqueeze(0), (self.ones*G).unsqueeze(0), (self.ones*B).unsqueeze(0)),0)
-        
+        back = torch.cat(((self.ones*R).unsqueeze(0), (self.ones*G).unsqueeze(0), (self.ones*B).unsqueeze(0)),0)       
         background = backgroundimage * boolBack
 
         foreground = image * boolFront

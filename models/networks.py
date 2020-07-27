@@ -238,8 +238,6 @@ def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal'
         net = NLayerDiscriminator(input_nc, ndf, n_layers_D, norm_layer=norm_layer, alternate=alternate)
     elif netD == 'pixel':     # classify if each pixel is real or fake
         net = PixelDiscriminator(input_nc, ndf, norm_layer=norm_layer)
-    elif netD == 'pyramid':
-        net = NLayerPyramidDiscriminator(input_nc, ndf, norm_layer=norm_layer)
     else:
         raise NotImplementedError('Discriminator model name [%s] is not recognized' % netD)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -658,7 +656,7 @@ class NLayerDiscriminator(nn.Module):
                 nn.LeakyReLU(0.2, True)
             ]
         if(alternate):
-            print("----------------------------alternate-----------------------------")
+            print("increasing the size of the discriminator")
             sequence += [
                 nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
@@ -682,121 +680,13 @@ class NLayerDiscriminator(nn.Module):
         """Standard forward."""
         
         input_no_RGB = input[:,3:,:]
-        #print("input_no_RGB",input_no_RGB.size())
         squeezed = self.squeeze_leaky(self.squeeze(input_no_RGB))
-        #print("squeezed",squeezed.size())
         newInput = torch.cat([input[:,0:3,:], squeezed], 1)
 
 
         return self.model(newInput), squeezed
 
 
-class NLayerPyramidDiscriminator(nn.Module):
-    """Defines a PatchGAN discriminator"""
-
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, alternate=False):
-        """Construct a PatchGAN discriminator
-
-        Parameters:
-            input_nc (int)  -- the number of channels in input images
-            ndf (int)       -- the number of filters in the last conv layer
-            n_layers (int)  -- the number of conv layers in the discriminator
-            norm_layer      -- normalization layer
-        """
-        super(NLayerPyramidDiscriminator, self).__init__()
-        kw = 4
-        padw = 1
-        nf_mult = 1
-        nf_mult_prev = 1
-        #256
-        self.conv1=nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay1 = torch.nn.InstanceNorm2d(32, affine=True)
-        self.relu1=nn.LeakyReLU(0.2, True)
-            
-        self.conv2=nn.Conv2d(32,64, kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay2 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.relu2=nn.LeakyReLU(0.2, True)
-
-            
-        self.conv3=nn.Conv2d(64, 64, kernel_size=4, stride=2, padding=1, bias=True)
-        self.lay3 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.relu3=nn.LeakyReLU(0.2, True)
-            
-        self.conv4=nn.Conv2d(64, 128,  kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay4 = torch.nn.InstanceNorm2d(128, affine=True)
-        self.relu4=nn.LeakyReLU(0.2, True)
-
-
-        self.conv5=nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay5 = torch.nn.InstanceNorm2d(128, affine=True)
-        self.relu5=nn.LeakyReLU(0.2, True)
-
-        self.SqueezeConv2=nn.Conv2d(128, 3,  kernel_size=3, stride=1, padding=1, bias=True)
-        self.SqueezeLay2 = torch.nn.InstanceNorm2d(3, affine=True)
-        self.SqueezeRelu2=nn.LeakyReLU(0.2, True)#64   
-
-        self.conv6=nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1, bias=True)
-        self.lay6 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.relu6=nn.LeakyReLU(0.2, True)
-            
-        self.conv7=nn.Conv2d(64, 64,  kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay7 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.relu7=nn.LeakyReLU(0.2, True)
-
-        self.conv8=nn.Conv2d(64, 32,  kernel_size=3, stride=2, padding=1, bias=True)
-        self.lay8 = torch.nn.InstanceNorm2d(32, affine=True)
-        self.relu8=nn.LeakyReLU(0.2, True)
-
-
-
-        self.conv9 = nn.Conv2d(32, 1, kernel_size=kw, stride=1, padding=padw)
-
-
-    def forward(self, input):
-        """Standard forward."""
-        out1 = self.conv1(input)
-        out2 = self.lay1(out1)
-        out3 = self.relu1(out2)
-            
-        out4 = self.conv2(out3)
-        out5 = self.lay2(out4)
-        out6 = self.relu2(out5)
-
-        out7 = self.conv3(out6)
-        out8 = self.lay3(out7)
-        out9 = self.relu3(out8)
-
-        out10 = self.conv4(out9)
-        out11 = self.lay4(out10)
-        out12 = self.relu4(out11)
-
-#----------------------------
-        out13 = self.conv5(out12)
-        out14 = self.lay5(out13)
-        out15 = self.relu5(out14)
-            
-
-        out16 = self.SqueezeConv2(out15)
-        out17 = self.SqueezeLay2(out16)
-        squeeze2 = self.SqueezeRelu2(out17)
-
-
-        out4 = self.conv6(squeeze2)
-        out5 = self.lay6(out4)
-        out6 = self.relu6(out5)
-
-        out7 = self.conv7(out6)
-        out8 = self.lay7(out7)
-        out9 = self.relu7(out8)
-
-        out10 = self.conv8(out9)
-        out11 = self.lay8(out10)
-        out12 = self.relu8(out11)
-
-        out = self.conv9(out12)
-        
-        return out, squeeze2
-          
 
 class PixelDiscriminator(nn.Module): 
     """Defines a 1x1 PatchGAN discriminator (pixelGAN)"""
@@ -1236,21 +1126,5 @@ class VGG19(nn.Module):
         out25=self.relu11(out24)         
         out26=self.conv12(out25)
         out27=self.relu12(out26)
-
-        #out28=self.max4(out27)           
-        #out29=self.conv13(out28)
-        #out30=self.relu13(out29)
-          
-        #out31=self.conv14(out30)
-        #out32=self.relu14(out31)
-            
-        #out33=self.conv15(out32)
-        #out34=self.relu15(out33)
-            
-        #out35=self.conv16(out34)
-        #out36=self.relu16(out35)
-
-        #out37=self.max5(out36)
-
         return  out2, out4, out9, out18, out27#, out36                   #Add appropriate outputs
 
