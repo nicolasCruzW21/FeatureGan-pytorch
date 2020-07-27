@@ -1,8 +1,20 @@
-python test.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_128 --num_test 860 --load_size 256 --epoch 100
 
-python train.py --dataroot ./datasets/naos --name maps_cyclegan --model cycle_gan --netG unet_128 --load_size 286 --lr 0.000025 --n_epochs 1 --n_epochs_decay 100 --print_freq 200 --display_freq 200 --lambda_identity 0.0 --continue_train
 
-The code for this model is based on CycleGan.
+
+
+
+
+
+python test.py --dataroot ./datasets/naos --name maps_cyclegan --model feature_gan --netG unet_512 --num_test 860 --load_size 512 --crop_size 512
+
+python train.py --dataroot ./datasets/naos --name maps_cyclegan --model feature_gan --netG unet_512 --load_size 580 --crop_size 512 --lr 0.00005 --n_epochs 200 --n_epochs_decay 150 --print_freq 50 --display_freq 50 --lambda_identity 0.0
+
+- Install [PyTorch](http://pytorch.org) and other dependencies (e.g., torchvision, [visdom](https://github.com/facebookresearch/visdom) and [dominate](https://github.com/Knio/dominate)).
+  - For pip users, please type the command `pip install -r requirements.txt`.
+  - For Conda users, we provide a installation script `./scripts/conda_deps.sh`. Alternatively, you can create a new Conda environment using `conda env create -f environment.yml`.
+
+
+The code for this model is based on CycleGan which was written by [Jun-Yan Zhu](https://github.com/junyanz) and [Taesung Park](https://github.com/taesung), and supported by [Tongzhou Wang](https://ssnl.github.io/).
 
 ## Abstract
 
