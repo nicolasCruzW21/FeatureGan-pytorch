@@ -1,5 +1,5 @@
 import os.path
-from data.base_dataset import BaseDataset, get_transform
+from data.base_dataset import BaseDataset, get_transform, get_params
 from data.image_folder import make_dataset
 from PIL import Image
 import random
@@ -22,20 +22,25 @@ class UnalignedDataset(BaseDataset):
         Parameters:
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
+        self.label=True
         BaseDataset.__init__(self, opt)
         self.dir_A = os.path.join(opt.dataroot, opt.phase + 'A')  # create a path '/path/to/data/trainA'
         self.dir_B = os.path.join(opt.dataroot, opt.phase + 'B')  # create a path '/path/to/data/trainB'
-
+ 
         self.A_paths = sorted(make_dataset(self.dir_A, opt.max_dataset_size))   # load images from '/path/to/data/trainA'
         self.B_paths = sorted(make_dataset(self.dir_B, opt.max_dataset_size))    # load images from '/path/to/data/trainB'
+
         self.A_size = len(self.A_paths)  # get the size of dataset A
         self.B_size = len(self.B_paths)  # get the size of dataset B
+
         btoA = self.opt.direction == 'BtoA'
         input_nc = self.opt.output_nc if btoA else self.opt.input_nc       # get the number of channels of input image
         output_nc = self.opt.input_nc if btoA else self.opt.output_nc      # get the number of channels of output image
-        self.transform_A = get_transform(self.opt, grayscale=(input_nc == 1), rotate = False)
-        self.transform_B = get_transform(self.opt, grayscale=(output_nc == 1), rotate = False)
-
+        self.original_crop = opt.crop_size
+        if(not self.label):
+            self.transform_B = get_transform(self.opt, grayscale=(output_nc == 1), rotate = True)
+            self.transform_A = get_transform(self.opt, grayscale=(input_nc == 1), rotate = False)
+            
     def __getitem__(self, index):
         """Return a data point and its metadata information.
 
@@ -54,15 +59,32 @@ class UnalignedDataset(BaseDataset):
         else:   # randomize the index for domain B to avoid fixed pairs.
             index_B = random.randint(0, self.B_size - 1)
         B_path = self.B_paths[index_B]
+
+        if(self.label):
+            L_path = B_path.replace("B","B_L")
+
         A_img = Image.open(A_path).convert('RGB')
         B_img = Image.open(B_path).convert('RGB')
+        if(self.label):
+            L_img = Image.open(L_path).convert('RGB')
         # apply image transformation
-        
+        if(self.label):
+            #self.opt.crop_size = random.randint((int)(self.original_crop/2), (int)(self.opt.load_size/2))*2
+            transform_params = get_params(self.opt, B_img.size)
+            self.transform_B = get_transform(self.opt, transform_params, grayscale=False, rotate = False)
+            self.transform_A = get_transform(self.opt, transform_params, grayscale=False, rotate = False)
+            self.transform_L = get_transform(self.opt, transform_params, grayscale=False, rotate = False, method=Image.NEAREST)
+
+
         #print("---------------------------------------------")
         A = self.transform_A(A_img)
         B = self.transform_B(B_img)
-
-        return {'A': A, 'B': B, 'A_paths': A_path, 'B_paths': B_path}
+        L = self.transform_L(L_img)
+        self.opt.crop_size = self.original_crop
+        if(self.label):
+            return {'A': A, 'B': B, 'L': L, 'A_paths': A_path, 'B_paths': B_path, 'L_paths': L_path}
+        else:
+            return {'A': A, 'B': B, 'A_paths': A_path, 'B_paths': B_path}
 
     def __len__(self):
         """Return the total number of images in the dataset.
