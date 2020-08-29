@@ -74,7 +74,7 @@ class CycleGANModel(BaseModel):
 
         if self.isTrain:
             visual_names_A = []
-            visual_names_B = ['real_A','real_B','real_L','extra_real_B', 'fake_A', 'fake_A_D','squeeze_fake_M1','squeeze_fake_M2','squeeze_fake_G1','squeeze_fake_G2']
+            visual_names_B = ['real_A','real_B','real_L','extra_real_B', 'fake_A', 'fake_A_D','squeeze_real_M1','squeeze_real_G1']
 
         self.visual_names = visual_names_A + visual_names_B  # combine visualizations for A and B
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
@@ -97,11 +97,11 @@ class CycleGANModel(BaseModel):
             #self.netD_B = networks.define_D(387, 72, "n_layers", 
                                             #2, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 2, True)
 
-            self.netD_B_M = networks.define_D(387, 72, "n_layers", 
-                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 0, True)
+            self.netD_B_M = networks.define_D(387, 80, "n_layers", 
+                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 2, True)
 
-            self.netD_B_G= networks.define_D(387, 72, "n_layers", 
-                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 0, True)
+            self.netD_B_G= networks.define_D(387, 80, "n_layers", 
+                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 2, True)
             #self.netF = torch.jit.load("VGG19.pt") #load the BGG 19 network (feature extractor network)
             #self.netF=self.netF.eval()
             #self.set_requires_grad([self.netF], False)
@@ -111,14 +111,9 @@ class CycleGANModel(BaseModel):
             self.set_requires_grad([self.netF], False)
  
         self.lay0 = torch.nn.InstanceNorm2d(3, affine=False).cuda()
-
-
-        self.layInst2 = torch.nn.InstanceNorm2d(6, affine=False).cuda()
-
-
-
-
         self.lay1 = torch.nn.LayerNorm([3, 256, 256], elementwise_affine=False).cuda()
+
+
         self.upsample_Feature = torch.nn.Upsample(size=256, mode='bilinear').cuda()
         self.criterionIdt = torch.nn.L1Loss()
         if self.isTrain:
@@ -131,7 +126,7 @@ class CycleGANModel(BaseModel):
 
            
             factorImage = 3#400000 #4 zebra 10 elephant #0.5 last of us
-            factorSky = 0.5
+            factorSky = 1
                 
             
             self.criterionFeatureImage = networks.FeatureLoss(2*factorImage ,      2*factorImage,      1*factorImage,      "L1").to(self.device)
@@ -150,12 +145,12 @@ class CycleGANModel(BaseModel):
 
             
 
-            self.jitter = torchvision.transforms.ColorJitter(brightness=0.05, contrast=0.015, saturation=0.015, hue=0.05)
+            self.jitter = torchvision.transforms.ColorJitter(brightness=0.015, contrast=0.015, saturation=0.015, hue=0.015)
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
 
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_B_M.parameters(), self.netD_B_G.parameters()), lr=opt.lr*1.5, betas=(opt.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_B_M.parameters(), self.netD_B_G.parameters()), lr=opt.lr*1.2, betas=(opt.beta1, 0.999))
 
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
@@ -277,16 +272,16 @@ class CycleGANModel(BaseModel):
         #self.squeeze_real_L2 = self.upsample_L(squeeze_fake[:,3:6, :])
 
         self.loss_D_B_M,squeeze_real, squeeze_fake = self.backward_D_basic(self.netD_B_M, concat_real_A_M, concat_fake_A_M)
-        self.squeeze_fake_M1 = self.upsample_M(squeeze_fake[:,0:3, :])
-        self.squeeze_fake_M2 = self.upsample_M(squeeze_fake[:,3:6, :])
-        #self.squeeze_real_M1 = self.upsample_L(squeeze_fake[:,0:3, :])
-        #self.squeeze_real_M2 = self.upsample_L(squeeze_fake[:,3:6, :])
+        #self.squeeze_fake_M1 = self.upsample_M(squeeze_fake[:,0:3, :])
+        #self.squeeze_fake_M2 = self.upsample_M(squeeze_fake[:,3:6, :])
+        self.squeeze_real_M1 = self.upsample_M(squeeze_real[:,0:3, :])
+        #self.squeeze_real_M2 = self.upsample_M(squeeze_fake[:,3:6, :])
 
         self.loss_D_B_G,squeeze_real, squeeze_fake = self.backward_D_basic(self.netD_B_G, concat_real_A_G, concat_fake_A_G)
-        self.squeeze_fake_G1 = self.upsample_M(squeeze_fake[:,0:3, :])
-        self.squeeze_fake_G2 = self.upsample_M(squeeze_fake[:,3:6, :])
-        #self.squeeze_real_G1 = self.upsample_L(squeeze_fake[:,0:3, :])
-        #self.squeeze_real_G2 = self.upsample_L(squeeze_fake[:,3:6, :])
+        #self.squeeze_fake_G1 = self.upsample_M(squeeze_fake[:,0:3, :])
+        #self.squeeze_fake_G2 = self.upsample_M(squeeze_fake[:,3:6, :])
+        self.squeeze_real_G1 = self.upsample_M(squeeze_real[:,0:3, :])
+        #self.squeeze_real_G2 = self.upsample_M(squeeze_fake[:,3:6, :])
 
 
     def calculate_Features(self, image, normalize = 'none'):
@@ -327,11 +322,8 @@ class CycleGANModel(BaseModel):
         toVGG1 = torch.cat([self.extra_fake_A, self.extra_real_B], 0)
         toVGG = torch.cat([toVGG0, toVGG1], 0)
 
-        #toVGG = self.upsample_Feature(toVGG)
-        out0, out1, out2, out3, out4  = self.calculate_Features(self.upsample_Feature(toVGG), 'instance')
-
-        
-
+        #Feature Loss
+        out0, out1, out2, out3, out4  = self.calculate_Features(self.upsample_Feature(toVGG), 'layer')
         self.loss_F_B_Image, _, _, _= self.criterionFeatureImage(out1[1,:,:,:], out3[1,:,:,:], out4[1,:,:,:], out1[0,:,:,:], out3[0,:,:,:], out4[0,:,:,:])
         self.loss_F_B_Image = max(0,(1-lambda_idt)) * self.loss_F_B_Image
         self.loss_F_B_Extra, _, _, _= self.criterionFeatureExtra(out1[3,:,:,:], out3[3,:,:,:], out4[3,:,:,:], out1[2,:,:,:], out3[2,:,:,:], out4[2,:,:,:])
