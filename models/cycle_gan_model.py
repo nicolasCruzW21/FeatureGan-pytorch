@@ -67,14 +67,16 @@ class CycleGANModel(BaseModel):
 
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
 
-        self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M','G_B_G', 'F_B', 'F_B_Image', 'F_B_Extra', 'G', 'idt_B','idt_A']
+        self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M','G_B_G', 'F_B', 'F_B_Image', 'F_B_Small', 'F_B_Big', 'G', 'idt_B']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         visual_names_A = []
-        visual_names_B = ['fake_A','real_B']
 
         if self.isTrain:
             visual_names_A = []
-            visual_names_B = ['real_A','real_B','real_L','extra_real_B', 'fake_A', 'fake_A_D','squeeze_real_M1','squeeze_real_G1']
+            visual_names_B = ['real_A','real_B','real_L','big_fake_A','small_fake_A', 'fake_A', 'fake_A_D','squeeze_real_M1','squeeze_real_G1']
+        else:
+            visual_names_B = ['gtFine_labelIds', 'leftImg8bit']
+        
 
         self.visual_names = visual_names_A + visual_names_B  # combine visualizations for A and B
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
@@ -83,7 +85,7 @@ class CycleGANModel(BaseModel):
         else:  # during test time, only load Gs
             self.model_names = ['G_B']
 
-        self.netG_B = networks.define_G(22, 3, opt.ngf, opt.netG, opt.norm,
+        self.netG_B = networks.define_G(32, 3, opt.ngf, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
@@ -126,11 +128,13 @@ class CycleGANModel(BaseModel):
 
            
             factorImage = 3#400000 #4 zebra 10 elephant #0.5 last of us
-            factorSky = 1
+            factorSmall = 1
+            factorBIg = 2
                 
             
-            self.criterionFeatureImage = networks.FeatureLoss(2*factorImage ,      2*factorImage,      1*factorImage,      "L1").to(self.device)
-            self.criterionFeatureExtra = networks.FeatureLoss(2*factorSky ,      2*factorSky,      2*factorSky,      "L1").to(self.device)
+            self.criterionFeatureImage = networks.FeatureLoss(4*factorImage ,      4*factorImage,      1*factorImage,      "L1").to(self.device)
+            self.criterionFeatureSmall = networks.FeatureLoss(1*factorSmall ,      2*factorSmall,      1*factorSmall,      "L1").to(self.device)
+            self.criterionFeatureBig = networks.FeatureLoss(2*factorBIg ,      1*factorBIg,      2*factorBIg,      "L1").to(self.device)
 
 
             self.criterionL1 = torch.nn.L1Loss()
@@ -150,7 +154,7 @@ class CycleGANModel(BaseModel):
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
 
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_B_M.parameters(), self.netD_B_G.parameters()), lr=opt.lr*1.2, betas=(opt.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_B_M.parameters(), self.netD_B_G.parameters()), lr=opt.lr*1.5, betas=(opt.beta1, 0.999))
 
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
@@ -187,8 +191,9 @@ class CycleGANModel(BaseModel):
             self.fake_A = self.netG_B(image)#self.avg_pool(self.real_B))# G_B(B)
             #print("self.fake_A",self.fake_A.size())
         else:
+            self.gtFine_labelIds = self.getIds(self.real_L).unsqueeze(0)
             image = self.one_hot(self.real_B, self.real_L).unsqueeze(0)
-            self.fake_A = self.netG_B(image)#self.avg_pool(self.real_B))# G_B(B)
+            self.leftImg8bit = self.netG_B(image)#self.avg_pool(self.real_B))# G_B(B)
 
 
     def backward_D_basic(self, netD, real, fake):
@@ -309,24 +314,60 @@ class CycleGANModel(BaseModel):
         else:
             self.loss_idt_A = 0
         
-        bool_sky = self.get_RGB(70,130,180,self.real_L.squeeze(0)).unsqueeze(0)
+        
         bool_person = self.get_RGB(220,20,60,self.real_L.squeeze(0)).unsqueeze(0)
         bool_rider = self.get_RGB(255,0,0,self.real_L.squeeze(0)).unsqueeze(0)
-        bool_extra= bool_rider + bool_person + bool_sky
-        self.extra_real_B = (self.real_B.squeeze(0) * bool_extra).unsqueeze(0)
-        self.extra_fake_A = (self.fake_A.squeeze(0) * bool_extra).unsqueeze(0)
+        bool_pole = self.get_RGB(153,153,153,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_trafic_light = self.get_RGB(250,170, 30,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_trafic_sign = self.get_RGB(220,220, 0,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_motorcycle = self.get_RGB(0, 0,230,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_bicycle = self.get_RGB(119, 11, 32,self.real_L.squeeze(0)).unsqueeze(0)
+
+        bool_car = self.get_RGB(0,0,142, self.real_L.squeeze(0)).unsqueeze(0)
+        bool_truck = self.get_RGB(0, 0, 70, self.real_L.squeeze(0)).unsqueeze(0)
+        bool_bus = self.get_RGB(0, 60,100, self.real_L.squeeze(0)).unsqueeze(0)
+        bool_caravan = self.get_RGB(0, 0, 90, self.real_L.squeeze(0)).unsqueeze(0)
+        bool_trailer = self.get_RGB(0, 0, 110,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_train = self.get_RGB(0, 80,100, self.real_L.squeeze(0)).unsqueeze(0)
+
+
+
+        bool_small= bool_rider + bool_person + bool_pole + bool_trafic_light + bool_trafic_sign + bool_motorcycle + bool_bicycle + bool_car + bool_truck + bool_bus + bool_caravan + bool_trailer + bool_train
+
+
+
+        self.small_real_B = (self.real_B.squeeze(0) * bool_small).unsqueeze(0)
+        self.small_fake_A = (self.fake_A.squeeze(0) * bool_small).unsqueeze(0)
+
+
+        bool_sky = self.get_RGB(70,130,180,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_building = self.get_RGB(70, 70, 70,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_wall = self.get_RGB(102,102,156,self.real_L.squeeze(0)).unsqueeze(0)
+
+        bool_bridge = self.get_RGB(102,102,156,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_tunnel = self.get_RGB(102,102,156,self.real_L.squeeze(0)).unsqueeze(0)
+        bool_terrain = self.get_RGB(102,102,156,self.real_L.squeeze(0)).unsqueeze(0)
+
+
+
+
+
+        bool_big = bool_sky + bool_building + bool_wall + bool_bridge + bool_tunnel + bool_terrain
+        self.big_real_B = (self.real_B.squeeze(0) * bool_big).unsqueeze(0)
+        self.big_fake_A = (self.fake_A.squeeze(0) * bool_big).unsqueeze(0)
 
 
 
         toVGG0 = torch.cat([self.fake_A, self.real_B], 0)
-        toVGG1 = torch.cat([self.extra_fake_A, self.extra_real_B], 0)
-        toVGG = torch.cat([toVGG0, toVGG1], 0)
+        toVGG1 = torch.cat([self.small_fake_A, self.small_real_B], 0)
+        toVGG2 = torch.cat([self.big_fake_A, self.big_real_B], 0)
+        toVGG = torch.cat([toVGG0, toVGG1, toVGG2], 0)
 
         #Feature Loss
         out0, out1, out2, out3, out4  = self.calculate_Features(self.upsample_Feature(toVGG), 'layer')
         self.loss_F_B_Image, _, _, _= self.criterionFeatureImage(out1[1,:,:,:], out3[1,:,:,:], out4[1,:,:,:], out1[0,:,:,:], out3[0,:,:,:], out4[0,:,:,:])
-        self.loss_F_B_Image = max(0,(1-lambda_idt)) * self.loss_F_B_Image
-        self.loss_F_B_Extra, _, _, _= self.criterionFeatureExtra(out1[3,:,:,:], out3[3,:,:,:], out4[3,:,:,:], out1[2,:,:,:], out3[2,:,:,:], out4[2,:,:,:])
+        self.loss_F_B_Small, _, _, _= self.criterionFeatureSmall(out1[3,:,:,:], out3[3,:,:,:], out4[3,:,:,:], out1[2,:,:,:], out3[2,:,:,:], out4[2,:,:,:])
+        self.loss_F_B_Big, _, _, _= self.criterionFeatureBig(out1[5,:,:,:], out3[5,:,:,:], out4[5,:,:,:], out1[4,:,:,:], out3[4,:,:,:], out4[4,:,:,:])
 
         concat_fake_A_M = torch.cat([self.upsample_M(out3[0,:,:,:].unsqueeze(0)), self.upsample_M(out2[0,:,:,:].unsqueeze(0))], 1)
         concat_fake_A_M = torch.cat([self.upsample_M(self.fake_A), concat_fake_A_M], 1)
@@ -343,7 +384,7 @@ class CycleGANModel(BaseModel):
         self.loss_G_B_M = self.criterionGAN(b, True)
         self.loss_G_B_G = self.criterionGAN(c, True)
 
-        self.loss_G_B = self.loss_G_B_M * 2/3 + self.loss_G_B_G * 1/3 #+ self.loss_G_B_L * 1/4
+        self.loss_G_B = self.loss_G_B_M * 1/3 + self.loss_G_B_G * 2/3 #+ self.loss_G_B_L * 1/4
 
         self.loss_idt_B = 0
 
@@ -353,7 +394,7 @@ class CycleGANModel(BaseModel):
 
 #--------------------------------Total------------------------------------------------------
 
-        self.loss_F_B = self.loss_idt_B + self.loss_F_B_Image + self.loss_idt_A + self.loss_F_B_Extra
+        self.loss_F_B = self.loss_idt_B + self.loss_F_B_Image + self.loss_F_B_Small + self.loss_F_B_Big
         # combined loss and calculate gradientsfake_A
         self.loss_G = self.loss_G_B + self.loss_F_B 
         #self.loss_G.backward()
@@ -409,28 +450,39 @@ class CycleGANModel(BaseModel):
     def one_hot(self, image, labels):
         labels=labels.squeeze(0)
         image=image.squeeze(0)
-
         channels = []
 
+        channels.append(self.get_RGB(0,  0,  0,labels))#none
+        channels.append(self.get_RGB(111, 74,  0,labels))#dynamic
+        channels.append(self.get_RGB(81,  0, 81,labels))#ground
         channels.append(self.get_RGB(128,64,128,labels))#road
         channels.append(self.get_RGB(244,35,232,labels))#sidewalk
+        channels.append(self.get_RGB(250,170,160,labels))#parking
+        channels.append(self.get_RGB(230,150,140,labels))#rail track
+        channels.append(self.get_RGB(70, 70, 70,labels))#building
+        channels.append(self.get_RGB(102,102,156,labels))#wall
+        channels.append(self.get_RGB(190,153,153,labels))#fence
+        channels.append(self.get_RGB(180, 165, 180,labels))#guard rail
+        channels.append(self.get_RGB(150, 100, 100,labels))#bridge
+        channels.append(self.get_RGB(150, 120, 90,labels))#tunnel
+        channels.append(self.get_RGB(153,153,153,labels))#pole
+        channels.append(self.get_RGB(250,170, 30,labels))#trafic light
+        channels.append(self.get_RGB(220,220, 0,labels))#trafic sign
+        channels.append(self.get_RGB(107,142, 35,labels))#vegetation
+        channels.append(self.get_RGB(152,251,152,labels))#terrain
+        channels.append(self.get_RGB(70,130,180,labels))#sky
         channels.append(self.get_RGB(220,20,60,labels))#person
         channels.append(self.get_RGB(255,0,0,labels))#rider
         channels.append(self.get_RGB(0,0,142,labels))#car
         channels.append(self.get_RGB(0, 0, 70,labels))#truck
         channels.append(self.get_RGB(0, 60,100,labels))#bus
+        channels.append(self.get_RGB(0, 0, 90,labels))#caravan
+        channels.append(self.get_RGB(0, 0, 110,labels))#trailer
         channels.append(self.get_RGB(0, 80,100,labels))#train
         channels.append(self.get_RGB(0, 0,230,labels))#motorcycle
         channels.append(self.get_RGB(119, 11, 32,labels))#bicycle
-        channels.append(self.get_RGB(70, 70, 70,labels))#building
-        channels.append(self.get_RGB(102,102,156,labels))#wall
-        channels.append(self.get_RGB(190,153,153,labels))#fence
-        channels.append(self.get_RGB(153,153,153,labels))#pole
-        channels.append(self.get_RGB(220,220, 0,labels))#trafic sign
-        channels.append(self.get_RGB(250,170, 30,labels))#trafic light
-        channels.append(self.get_RGB(107,142, 35,labels))#vegetation
-        channels.append(self.get_RGB(152,251,152,labels))#terrain
-        channels.append(self.get_RGB(70,130,180,labels))#sky
+
+
         
         
         for channel in channels:
@@ -439,17 +491,49 @@ class CycleGANModel(BaseModel):
         
         return image
 
-    def draw(self):
-        self.real_A = self.upsample_Im(self.real_A)
-        self.real_B = self.upsample_Im(self.real_B)
-        self.real_L = self.upsample_Im(self.real_L)
-        self.fake_A = self.upsample_Im(self.fake_A)
-        self.fake_A_D = self.upsample_Im(self.fake_A_D)
-        self.extra_real_B = self.upsample_Im(self.extra_real_B)
-        self.squeeze_fake_M1 = self.upsample_Im(self.squeeze_fake_M1)
-        self.squeeze_fake_M2 = self.upsample_Im(self.squeeze_fake_M2)
-        self.squeeze_fake_G1 = self.upsample_Im(self.squeeze_fake_G1)
-        self.squeeze_fake_G2 = self.upsample_Im(self.squeeze_fake_G2)
 
+    def getIds(self, labels):
+        labels=labels.squeeze(0)
+        channels = []
+        #channels.append(self.get_RGB(0,  0,  0,labels) * 0)#unlabeled
+        channels.append(self.get_RGB(0,  0,  0,labels) * 1)#ego vehicle
+        #channels.append(self.get_RGB(0,  0,  0,labels) * 2)#rectification border
+        #channels.append(self.get_RGB(0,  0,  0,labels) * 3)#out of roi
+        #channels.append(self.get_RGB(0,  0,  0,labels) * 4)#static
+        channels.append(self.get_RGB(111, 74,  0,labels) * 5)#dynamic
+        channels.append(self.get_RGB(81,  0, 81,labels) * 6)#ground
+        channels.append(self.get_RGB(128,64,128,labels) * 7)#road
+        channels.append(self.get_RGB(244,35,232,labels) * 8)#sidewalk
+        channels.append(self.get_RGB(250,170,160,labels) * 9)#building
+        channels.append(self.get_RGB(230,150,140,labels) * 10)#building
+        channels.append(self.get_RGB(70, 70, 70,labels) * 11)#building
+        channels.append(self.get_RGB(102,102,156,labels) * 12)#wall
+        channels.append(self.get_RGB(190,153,153,labels) * 13)#fence
+        channels.append(self.get_RGB(180, 165, 180,labels) * 14)#guard rail
+        channels.append(self.get_RGB(150, 100, 100,labels) * 15)#bridge
+        channels.append(self.get_RGB(150, 120, 90,labels) * 16)#tunnel
+        channels.append(self.get_RGB(153,153,153,labels) * 18)#polegroup
+        channels.append(self.get_RGB(250,170, 30,labels) * 19)#trafic light
+        channels.append(self.get_RGB(220,220, 0,labels) * 20)#trafic sign
+        channels.append(self.get_RGB(107,142, 35,labels) * 21)#vegetation
+        channels.append(self.get_RGB(152,251,152,labels) * 22)#terrain
+        channels.append(self.get_RGB(70,130,180,labels) * 23)#sky
+        channels.append(self.get_RGB(220,20,60,labels) * 24)#person
+        channels.append(self.get_RGB(255,0,0,labels) * 25)#rider
+        channels.append(self.get_RGB(0,0,142,labels) * 26)#car
+        channels.append(self.get_RGB(0, 0, 70,labels) * 27)#truck
+        channels.append(self.get_RGB(0, 60,100,labels) * 28)#bus
+        channels.append(self.get_RGB(0, 0, 90,labels) * 29)#caravan
+        channels.append(self.get_RGB(0, 0, 110,labels) * 30)#trailer
+        channels.append(self.get_RGB(0, 80,100,labels) * 31)#train
+        channels.append(self.get_RGB(0, 0,230,labels) * 32)#motorcycle
+        channels.append(self.get_RGB(119, 11, 32,labels) * 33)#bicycle
         
+        image=channels[0] * 0
+        image = image.unsqueeze(0)
+        for channel in channels:
+            image = image + channel.unsqueeze(0)
+        image = (image+1) * 2.0 / 255.0 - 1
+        image.unsqueeze(0)
+        return image
 

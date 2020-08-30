@@ -735,7 +735,7 @@ class NLayerDiscriminator(nn.Module):
 
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(11, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]#input_nc = 9
+        sequence = [nn.Conv2d(19, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]#input_nc = 9
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):  # gradually increase the number of filters
@@ -764,10 +764,9 @@ class NLayerDiscriminator(nn.Module):
         sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
         self.model = nn.Sequential(*sequence)
         
-        WH=128
-        squeeze = [nn.Conv2d(input_nc-3, 8, kernel_size=5, stride=1, padding=2)]
+        squeeze = [nn.Conv2d(input_nc-3, 16, kernel_size=5, stride=1, padding=2)]
         squeeze+= [nn.LeakyReLU(True)]
-        squeeze+=[norm_layer(8)]
+        squeeze+=[torch.nn.InstanceNorm2d(16, affine=True, track_running_stats=True).cuda()]
         self.squeeze = nn.Sequential(*squeeze)
 
     def forward(self, input):
