@@ -154,12 +154,14 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=16)
     elif netG == 'resnet_6blocks':
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
-    elif netG == 'resnetCascade_12blocks':
-        net = ResnetCascadeGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=12)
-    elif netG == 'resnetCascade_16blocks':
-        net = ResnetCascadeGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=16)
+    elif netG == 'resnetPyramid_9blocks':
+        net = ResnetPyramidGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
+    elif netG == 'resnetPyramid_6blocks':
+        net = ResnetPyramidGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
+    elif netG == 'resnetPyramid_16blocks':
+        net = ResnetPyramidGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=16)
     elif netG == 'unet_128':
-        net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+        net = UnetGenerator(input_nc, output_nc, 3, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'cascade':
@@ -205,7 +207,7 @@ def define_F(gpu_ids=[]):
 
 
 
-def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal', init_gain=0.02, gpu_ids=[], alternate = False, pyramid = False):
+def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal', init_gain=0.02, gpu_ids=[], alternate = False, with_statistics=True, pyramid = False):
     """Create a discriminator
 
     Parameters:
@@ -239,9 +241,9 @@ def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal'
     norm_layer = get_norm_layer(norm_type=norm)
 
     if netD == 'basic':  # default PatchGAN classifier
-        net = NLayerDiscriminator(input_nc, ndf, n_layers=3, norm_layer=norm_layer, alternate=alternate, pyramid = pyramid)
+        net = NLayerDiscriminator(input_nc, ndf, n_layers=3, norm_layer=norm_layer, alternate=alternate, with_statistics = with_statistics, pyramid = pyramid)
     elif netD == 'n_layers':  # more options
-        net = NLayerDiscriminator(input_nc, ndf, n_layers_D, norm_layer=norm_layer, alternate=alternate, pyramid = pyramid)
+        net = NLayerDiscriminator(input_nc, ndf, n_layers_D, norm_layer=norm_layer, alternate=alternate, with_statistics = with_statistics, pyramid = pyramid)
     elif netD == 'pixel':     # classify if each pixel is real or fake
         net = PixelDiscriminator(input_nc, ndf, norm_layer=norm_layer)
     elif netD == 'pyramid':
@@ -413,7 +415,7 @@ class ResnetCascadeGenerator(nn.Module):
     We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
     """
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=68, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
         """Construct a Resnet-based generator
 
         Parameters:
@@ -432,7 +434,7 @@ class ResnetCascadeGenerator(nn.Module):
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
 
-        feature_size=3
+        feature_size=input_nc
 
         model_encoder = [nn.ReflectionPad2d(3),
                  nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias),
@@ -475,7 +477,8 @@ class ResnetCascadeGenerator(nn.Module):
 
         model_decoder += [nn.ReflectionPad2d(3)]
         model_decoder += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        model_decoder += [nn.Tanh()]
+        #model_decoder += [nn.Tanh()]
+        self.tanh=nn.Tanh()
 
         self.model_decoder = nn.Sequential(*model_decoder)
 
@@ -484,10 +487,171 @@ class ResnetCascadeGenerator(nn.Module):
         #features=self.upsample(input[:,3:,:,:])
         encoded = self.model_encoder(input)
         #print(encoded.size())
-        upsample = torch.nn.Upsample(size=encoded.size()[2], mode='bilinear').cuda()
-        encoded_concat= torch.cat([encoded, upsample(input[:,:3,:,:])],1)
+        upsample = torch.nn.Upsample(size=encoded.size()[2], mode='nearest').cuda()
+        encoded_concat= torch.cat([encoded, upsample(input[:,:,:,:])],1)
+        output = self.model_decoder(self.model_resnet(encoded_concat))
   
-        return self.model_decoder(self.model_resnet(encoded_concat))
+
+        return torch.cat([self.tanh(output[:,:3,:,:]),output[:,3:,:,:]],1)
+
+class ResnetPyramidGenerator(nn.Module):
+    """Resnet-based generator that consists of Resnet blocks between a few downsampling/upsampling operations.
+
+    We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
+    """
+
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+        """Construct a Resnet-based generator
+
+        Parameters:
+            input_nc (int)      -- the number of channels in input images
+            output_nc (int)     -- the number of channels in output images
+            ngf (int)           -- the number of filters in the last conv layer
+            norm_layer          -- normalization layer
+            use_dropout (bool)  -- if use dropout layers
+            n_blocks (int)      -- the number of ResNet blocks
+            padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
+        """
+        assert(n_blocks >= 0)
+        super(ResnetPyramidGenerator, self).__init__()
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        self.input = torch.zeros([1,ngf-input_nc, 256, 256]).float().cuda()
+
+        model_preprocess = [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        model_preprocess += [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
+        model_direct = []
+        for i in range(4):       # add ResNet blocks
+            model_direct += [ResnetBlock((int)(ngf), padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
+
+       
+        n_downsampling = 3
+        #for i in range(n_downsampling):  # add downsampling layers
+        mult = 2 ** 0
+        model_pyramid_0 = [PyramidBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        self.model_pyramid_0 = nn.Sequential(*model_pyramid_0)
+        mult = 2 ** 1
+        model_pyramid_1 = [PyramidBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        self.model_pyramid_1 = nn.Sequential(*model_pyramid_1)
+        mult = 2 ** 2
+        model_pyramid_2 = [PyramidBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        self.model_pyramid_2 = nn.Sequential(*model_pyramid_2)
+
+
+
+
+        mult = 2 ** (n_downsampling - 0)
+        model_pyramid_2_up = [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
+                                     kernel_size=3, stride=2,
+                                     padding=1, output_padding=1,
+                                     bias=use_bias),
+                  norm_layer(int(ngf * mult / 2)),
+                  nn.ReLU(True)]
+        self.model_pyramid_2_up = nn.Sequential(*model_pyramid_2_up)
+
+        mult = 2 ** (n_downsampling - 1)
+        model_pyramid_1_up = [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
+                                     kernel_size=3, stride=2,
+                                     padding=1, output_padding=1,
+                                     bias=use_bias),
+                  norm_layer(int(ngf * mult / 2)),
+                  nn.ReLU(True)]
+        self.model_pyramid_1_up = nn.Sequential(*model_pyramid_1_up)
+
+        mult = 2 ** (n_downsampling - 2)
+        model_pyramid_0_up = [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
+                                     kernel_size=3, stride=2,
+                                     padding=1, output_padding=1,
+                                     bias=use_bias),
+                  norm_layer(int(ngf * mult / 2)),
+                  nn.ReLU(True)]
+        self.model_pyramid_0_up = nn.Sequential(*model_pyramid_0_up)
+
+        #end_model = []
+        #for i in range(2):       # add ResNet blocks
+            #end_model += [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
+        #end_model += [nn.ReflectionPad2d(0)]
+        #end_model += [norm_layer(ngf),nn.ReLU(True)]
+        #end_model += [nn.Conv2d(ngf, ngf, kernel_size=1, padding=0)]
+        out_model = []
+        for i in range(4):       # add ResNet blocks
+            out_model += [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
+        self.tanh = nn.Tanh()
+        self.model_preprocess = nn.Sequential(*model_preprocess)
+        self.model_direct = nn.Sequential(*model_direct)
+        self.end_model = nn.Sequential(*end_model)
+        self.out_model = nn.Sequential(*out_model)
+
+    def forward(self, input):
+        """Standard forward"""
+
+        input2 = torch.cat([self.input,input],1)
+
+        preprocess = self.model_preprocess(input2)
+
+
+        direct = self.model_direct(preprocess)
+        pyramid_0 = self.model_pyramid_0(preprocess)
+        pyramid_1 = self.model_pyramid_1(pyramid_0)
+        pyramid_2 = self.model_pyramid_2(pyramid_1)
+
+        pyramid_2_up = self.model_pyramid_2_up(pyramid_2) + pyramid_1
+        pyramid_1_up = self.model_pyramid_1_up(pyramid_2_up) + pyramid_0
+
+
+
+        output = self.model_pyramid_0_up(pyramid_1_up) + direct
+
+
+        return torch.cat([self.tanh(self.out_model(output)[:,:3,:,:]), output[:,3:32,:,:]],1)
+
+class PyramidBlock(nn.Module):
+    """Define a Resnet block"""
+
+    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+        """Initialize the Resnet block
+
+        A resnet block is a conv block with skip connections
+        We construct a conv block with build_conv_block function,
+        and implement skip connections in <forward> function.
+        Original Resnet paper: https://arxiv.org/pdf/1512.03385.pdf
+        """
+        super(PyramidBlock, self).__init__()
+        self.pyramid_block = self.build_pyramid_block(dim, padding_type, norm_layer, use_dropout, use_bias)
+
+    def build_pyramid_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+        """Construct a convolutional block.
+
+        Parameters:
+            dim (int)           -- the number of channels in the conv layer.
+            padding_type (str)  -- the name of padding layer: reflect | replicate | zero
+            norm_layer          -- normalization layer
+            use_dropout (bool)  -- if use dropout layers.
+            use_bias (bool)     -- if the conv layer uses bias or not
+
+        Returns a conv block (with a conv layer, a normalization layer, and a non-linearity layer (ReLU))
+        """
+        
+        pyramid_block = [nn.Conv2d(dim, dim * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
+                  norm_layer(dim * 2),
+                  nn.LeakyReLU(True)]
+        pyramid_block += [ResnetBlock(dim * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        pyramid_block += [ResnetBlock(dim * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        pyramid_block += [ResnetBlock(dim * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        pyramid_block += [ResnetBlock(dim * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        return nn.Sequential(*pyramid_block)
+
+    def forward(self, x):
+        """Forward function (with skip connections)"""
+        out = self.pyramid_block(x)  # add skip connections
+        return out
 
 
 class ResnetGenerator(nn.Module):
@@ -520,12 +684,16 @@ class ResnetGenerator(nn.Module):
                  norm_layer(ngf),
                  nn.ReLU(True)]
 
+        model += [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        
+
         n_downsampling = 2
         for i in range(n_downsampling):  # add downsampling layers
             mult = 2 ** i
             model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
                       norm_layer(ngf * mult * 2),
-                      nn.ReLU(True)]
+                      nn.LeakyReLU(True)]
+            model += [ResnetBlock(ngf * mult * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
         mult = 2 ** n_downsampling
         for i in range(n_blocks):       # add ResNet blocks
@@ -540,15 +708,32 @@ class ResnetGenerator(nn.Module):
                                          bias=use_bias),
                       norm_layer(int(ngf * mult / 2)),
                       nn.ReLU(True)]
+        model += [ResnetBlock(int(ngf * mult / 2), padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+
         model += [nn.ReflectionPad2d(3)]
-        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        model += [nn.Tanh()]
+        model += [nn.Conv2d(ngf, ngf, kernel_size=1, padding=0, bias=use_bias)]
+        #print(ngf,"----------------------")
+        end_model = [norm_layer(int(ngf)), nn.ReLU(True)]
+        end_model += [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        end_model += [nn.Conv2d(ngf, 3, kernel_size=3, padding=1)]
+        end_model += [nn.Tanh()]
+        #model += [nn.Tanh()]
+        #end_model=nn.Tanh()
 
         self.model = nn.Sequential(*model)
+        self.end_model = nn.Sequential(*end_model)
 
     def forward(self, input):
         """Standard forward"""
-        return self.model(input)
+
+
+
+        output=self.model(input)
+        #print(output.size(),"-------------------------------")
+
+        return torch.cat([self.end_model(output),output[:,3:29,:,:]],1)
+
+
 
 
 class ResnetBlock(nn.Module):
@@ -637,10 +822,11 @@ class UnetGenerator(nn.Module):
         unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
-
+        self.tanh = nn.Tanh()
     def forward(self, input):
         """Standard forward"""
-        return self.model(input)
+        out = self.model(input)
+        return torch.cat([self.tanh(out[:,:3,:,:]), out[:,3:,:,:]],1)
 
 
 class UnetSkipConnectionBlock(nn.Module):
@@ -683,7 +869,7 @@ class UnetSkipConnectionBlock(nn.Module):
                                         kernel_size=4, stride=2,
                                         padding=1)
             down = [downconv]
-            up = [uprelu, upconv, nn.Tanh()]
+            up = [uprelu, upconv]
             model = down + [submodule] + up
         elif innermost:
             upconv = nn.ConvTranspose2d(inner_nc, outer_nc,
@@ -716,7 +902,7 @@ class UnetSkipConnectionBlock(nn.Module):
 class NLayerDiscriminator(nn.Module):
     """Defines a PatchGAN discriminator"""
 
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, alternate=0, pyramid = False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, alternate=0, with_statistics=True, pyramid = False):
         """Construct a PatchGAN discriminator
 
         Parameters:
@@ -735,7 +921,7 @@ class NLayerDiscriminator(nn.Module):
 
         kw = 4
         padw = 1
-        sequence = [nn.Conv2d(19, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]#input_nc = 9
+        sequence = []#input_nc = 9
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):  # gradually increase the number of filters
@@ -763,23 +949,27 @@ class NLayerDiscriminator(nn.Module):
 
         sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
         self.model = nn.Sequential(*sequence)
-        
-        squeeze = [nn.Conv2d(input_nc-3, 16, kernel_size=5, stride=1, padding=2)]
-        squeeze+= [nn.LeakyReLU(True)]
-        squeeze+=[torch.nn.InstanceNorm2d(16, affine=True, track_running_stats=True).cuda()]
+        squeeze=[]
+        if(not with_statistics):
+            squeeze = [torch.nn.InstanceNorm2d(input_nc)]
+            print("without stats")
+        squeeze+=[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
+        #squeeze += [nn.Conv2d(input_nc, 128, kernel_size=5, stride=1, padding=2)]
+        #squeeze+= [nn.LeakyReLU(0.2, True)]
+        #squeeze+=[torch.nn.InstanceNorm2d(128).cuda()]
         self.squeeze = nn.Sequential(*squeeze)
 
     def forward(self, input):
         """Standard forward."""
         
-        input_no_RGB = input[:,3:,:]
+        #input_no_RGB = input[:,3:,:]
         #print("input_no_RGB",input_no_RGB.size())
-        squeezed = self.squeeze(input_no_RGB)
+        squeezed = self.squeeze(input)
         #print("squeezed",squeezed.size())
-        newInput = torch.cat([input[:,0:3,:], squeezed], 1)
+        #newInput = torch.cat([input[:,:3,:], squeezed], 1)
 
 
-        return self.model(newInput), squeezed
+        return self.model(squeezed), squeezed
 
 
 class NLayerPyramidDiscriminator(nn.Module):
@@ -1216,7 +1406,7 @@ class VGG19(nn.Module):
             
         self.conv2=nn.Conv2d(64,64, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu2=nn.ReLU(inplace=True)
-        self.max1=nn.AvgPool2d(kernel_size=2, stride=2)
+        self.max1=nn.AvgPool2d(kernel_size=3, stride=2)
         #128
 
             
@@ -1226,7 +1416,7 @@ class VGG19(nn.Module):
             
         self.conv4=nn.Conv2d(128, 128,  kernel_size=3, padding=1, bias=True)
         self.relu4=nn.ReLU(inplace=True)
-        self.max2=nn.AvgPool2d(kernel_size=2, stride=2)
+        self.max2=nn.AvgPool2d(kernel_size=3, stride=2)
 #64
 
 
@@ -1247,7 +1437,7 @@ class VGG19(nn.Module):
         self.conv8=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
         self.lay8 = torch.nn.InstanceNorm2d(256, affine=True)
         self.relu8=nn.ReLU(inplace=True)
-        self.max3=nn.AvgPool2d(kernel_size=2, stride=2)
+        self.max3=nn.AvgPool2d(kernel_size=3, stride=2)
 #32
 
 
@@ -1328,7 +1518,7 @@ class VGG19(nn.Module):
         out26=self.conv12(out25)
         out27=self.relu12(out26)
 
-        #out28=self.max4(out27)           
+        out28=self.max4(out27)           
         #out29=self.conv13(out28)
         #out30=self.relu13(out29)
           
@@ -1343,5 +1533,5 @@ class VGG19(nn.Module):
 
         #out37=self.max5(out36)
 
-        return  out2, out4, out9, out18, out27#, out36                   #Add appropriate outputs
+        return  out2, out7, out9, out18, out28#, out36                   #Add appropriate outputs
 
