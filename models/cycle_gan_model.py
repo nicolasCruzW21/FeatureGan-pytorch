@@ -87,15 +87,17 @@ class CycleGANModel(BaseModel):
         self.loss_mean_G=0
         self.loss_var_G=0
 
-        self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M', 'G_B_G', 'F_B', 'F_B_Image', 'F_B_Small', 'F_B_Big', 'G', 'idt_B']
+        
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         visual_names_A = []
 
         if self.isTrain:
             visual_names_A = []
             visual_names_B = ['real_A','real_B','seg_cars_target','seg_cars', 'fake_A', 'fake_A_D','squeeze_real_M1','squeeze_real_G1','squeeze_fake_M1','squeeze_fake_G1']
+            self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M', 'G_B_G', 'F_B', 'F_B_Image', 'F_B_Small', 'F_B_Big', 'G', 'idt_B']
         else:
             visual_names_B = ['gtFine_labelIds', 'leftImg8bit', 'leftImg8bit_r']
+            self.loss_names = ['idt_B']
         
 
         self.visual_names = visual_names_A + visual_names_B  # combine visualizations for A and B
@@ -144,7 +146,7 @@ class CycleGANModel(BaseModel):
         self.lay0 = torch.nn.InstanceNorm2d(3, affine=False).cuda()
         self.lay1 = torch.nn.LayerNorm([3, opt.crop_size, opt.crop_size], elementwise_affine=False).cuda()
         self.sig = nn.Sigmoid()
-
+        self.criterionSeg = torch.nn.BCEWithLogitsLoss()
         self.upsample_Feature = torch.nn.Upsample(size=256, mode='bilinear').cuda()
         if self.isTrain:
             if opt.lambda_identity > 0.0:  # only works when input and output images have the same number of channels
@@ -167,7 +169,7 @@ class CycleGANModel(BaseModel):
 
             self.criterionL1 = torch.nn.L1Loss()
             self.criterionL2 = torch.nn.MSELoss()
-            self.criterionSeg = torch.nn.BCEWithLogitsLoss()
+            
 
             self.avg_pool = torch.nn.AvgPool2d(kernel_size=2, stride=1, padding=0)
 
@@ -233,9 +235,11 @@ class CycleGANModel(BaseModel):
         else:
             self.gtFine_labelIds = self.getIds(self.real_L).unsqueeze(0)
             image = self.one_hot(self.real_B, self.real_L).unsqueeze(0)
-            result = self.netG_B(self.real_B)
+            result = self.netG_B(image)
             self.leftImg8bit =result[:,:3,:,:]
             self.leftImg8bit_r = self.real_B
+            self.loss_idt_B = self.criterionSeg(result[:,3:,:,:],image[:,3:,:,:])
+                
             #self.seg_cars = self.sig(result[:,21:24,:,:])
 
 
@@ -578,7 +582,7 @@ class CycleGANModel(BaseModel):
         labels=labels.squeeze(0)
         channels = []
         #channels.append(self.get_RGB(0,  0,  0,labels) * 0)#unlabeled
-        channels.append(self.get_RGB(0,  0,  0,labels) * 1)#ego vehicle
+        channels.append(self.get_RGB(0,  0,  0,labels) * 0)#ego vehicle
         #channels.append(self.get_RGB(0,  0,  0,labels) * 2)#rectification border
         #channels.append(self.get_RGB(0,  0,  0,labels) * 3)#out of roi
         #channels.append(self.get_RGB(0,  0,  0,labels) * 4)#static

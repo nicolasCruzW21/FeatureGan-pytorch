@@ -5,7 +5,7 @@ import ntpath
 import time
 from . import util, html
 from subprocess import Popen, PIPE
-
+from PIL import Image
 
 if sys.version_info[0] == 2:
     VisdomExceptionBase = Exception
@@ -13,7 +13,7 @@ else:
     VisdomExceptionBase = ConnectionError
 
 
-def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
+def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, bad=False, Test=False):
     """Save images to the disk.
 
     Parameters:
@@ -25,7 +25,7 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
 
     This function will save images stored in 'visuals' to the HTML file specified by 'webpage'.
     """
-    image_dir = webpage.get_image_dir()
+    image_dir_aux = webpage.get_image_dir()
     short_path = ntpath.basename(image_path[0])
     name = os.path.splitext(short_path)[0]
 
@@ -35,8 +35,21 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
     for label, im_data in visuals.items():
         im = util.tensor2im(im_data)
         image_name = '%s_%s.png' % (name, label)
+        image_dir=image_dir_aux
+
+        interpolation = Image.BICUBIC   
+        if(image_name.endswith("_r.png")):
+            image_dir = image_dir.replace("images","real")
+        elif(image_name.endswith("Ids.png")):
+            image_dir = image_dir.replace("images","ids")
+            interpolation = Image.NEAREST
+
+        if(bad):
+            print("bad bad")
+            image_dir = image_dir.replace("test_latest","bad")
+
         save_path = os.path.join(image_dir, image_name)
-        util.save_image(im, save_path, aspect_ratio=aspect_ratio)
+        util.save_image(im, save_path, aspect_ratio=aspect_ratio, interpolation=interpolation)
         ims.append(image_name)
         txts.append(label)
         links.append(image_name)

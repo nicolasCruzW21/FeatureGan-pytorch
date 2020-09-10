@@ -57,7 +57,7 @@ def diagnose_network(net, name='network'):
     print(mean)
 
 
-def save_image(image_numpy, image_path, aspect_ratio=1.0):
+def save_image(image_numpy, image_path, aspect_ratio=1.0, interpolation = Image.BICUBIC):
     """Save a numpy image to the disk
 
     Parameters:
@@ -67,11 +67,10 @@ def save_image(image_numpy, image_path, aspect_ratio=1.0):
 
     image_pil = Image.fromarray(image_numpy)
     h, w, _ = image_numpy.shape
-
     if aspect_ratio > 1.0:
-        image_pil = image_pil.resize((h, int(w * aspect_ratio)), Image.BICUBIC)
+        image_pil = image_pil.resize((h, int(w * aspect_ratio)), interpolation)
     if aspect_ratio < 1.0:
-        image_pil = image_pil.resize((int(h / aspect_ratio), w), Image.BICUBIC)
+        image_pil = image_pil.resize((int(h / aspect_ratio), w), interpolation)
     image_pil.save(image_path)
 
 
