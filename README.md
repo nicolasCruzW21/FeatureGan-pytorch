@@ -22,7 +22,7 @@ Then paste it in the main folder:
 
 To start training:
 
-"python train.py --dataroot ./datasets/SimRobot --name SimRobot --model feature_gan --netG unet_512 --load_size 580 --crop_size 512 --lr 0.00005 --n_epochs 200 --n_epochs_decay 150 --print_freq 10 --display_freq 10"
+"python train.py --dataroot ./datasets/naos --name naos --model feature_gan --netG unet_256 --load_size 296 --crop_size 256 --lr 0.00005 --n_epochs 100 --n_epochs_decay 150 --print_freq 10 --display_freq 10"
 
 To infer and trace:
 
