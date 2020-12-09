@@ -161,7 +161,7 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
     elif netG == 'resnetPyramid_16blocks':
         net = ResnetPyramidGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=16)
     elif netG == 'unet_128':
-        net = UnetGenerator(input_nc, output_nc, 3, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+        net = UnetGenerator(input_nc, output_nc, 4, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'cascade':
@@ -286,18 +286,13 @@ class FeatureLoss(nn.Module):
 
     def __call__(self, out7_r, out14_r, out23_r, out7_f, out14_f, out23_f):
         self.lay0 = torch.nn.InstanceNorm2d(64, affine=False).cuda()
-        self.lay1 = torch.nn.InstanceNorm2d(256, affine=False).cuda()
-        self.lay2 = torch.nn.InstanceNorm2d(512, affine=False).cuda()
+        self.lay1 = torch.nn.InstanceNorm2d(64, affine=False).cuda()
+        self.lay2 = torch.nn.InstanceNorm2d(128, affine=False).cuda()
 
 
-        E1=self.compute_error(self.lay0(out7_r.unsqueeze(0)), self.lay0(out7_f.unsqueeze(0)))#/1.6
-        E2=self.compute_error(self.lay1(out14_r.unsqueeze(0)), self.lay1(out14_f.unsqueeze(0)))#/2.3
-        E3=self.compute_error(self.lay2(out23_r.unsqueeze(0)), self.lay2(out23_f.unsqueeze(0)))#/1.8
-        
-        #print("E1",E1.cpu().float().detach().numpy())
-        #print("E2",E2.cpu().float().detach().numpy())
-        #print("E3",E3.cpu().float().detach().numpy())
-        #print("E4",E4.cpu().float().detach().numpy())
+        E1=self.compute_error(self.lay0(out7_r.unsqueeze(0)), self.lay0(out7_f.unsqueeze(0)))
+        E2=self.compute_error(self.lay1(out14_r.unsqueeze(0)), self.lay1(out14_f.unsqueeze(0)))
+        E3=self.compute_error(self.lay2(out23_r.unsqueeze(0)), self.lay2(out23_f.unsqueeze(0)))
         
         Total_loss= max(E1/self.coef1 + E2/self.coef2 + E3/self.coef3,0)
         return Total_loss, E1/self.coef1, E2/self.coef2, E3/self.coef3
@@ -921,7 +916,7 @@ class NLayerDiscriminator(nn.Module):
 
         kw = 4
         padw = 1
-        sequence = []#input_nc = 9
+        sequence = [nn.Conv2d(ndf+3, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]#input_nc = 9
         nf_mult = 1
         nf_mult_prev = 1
         for n in range(1, n_layers):  # gradually increase the number of filters
@@ -951,9 +946,9 @@ class NLayerDiscriminator(nn.Module):
         self.model = nn.Sequential(*sequence)
         squeeze=[]
         if(not with_statistics):
-            squeeze = [torch.nn.InstanceNorm2d(input_nc)]
+            squeeze = [torch.nn.InstanceNorm2d(input_nc-3)]
             print("without stats")
-        squeeze+=[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
+        squeeze+=[nn.Conv2d(input_nc-3, ndf, kernel_size=3, stride=1, padding=padw), nn.LeakyReLU(0.2, True)]
         #squeeze += [nn.Conv2d(input_nc, 128, kernel_size=5, stride=1, padding=2)]
         #squeeze+= [nn.LeakyReLU(0.2, True)]
         #squeeze+=[torch.nn.InstanceNorm2d(128).cuda()]
@@ -962,438 +957,14 @@ class NLayerDiscriminator(nn.Module):
     def forward(self, input):
         """Standard forward."""
         
-        #input_no_RGB = input[:,3:,:]
+        input_no_RGB = input[:,3:,:]
         #print("input_no_RGB",input_no_RGB.size())
-        squeezed = self.squeeze(input)
+        squeezed = self.squeeze(input_no_RGB)
         #print("squeezed",squeezed.size())
-        #newInput = torch.cat([input[:,:3,:], squeezed], 1)
+        newInput = torch.cat([input[:,:3,:], squeezed], 1)
 
 
-        return self.model(squeezed), squeezed
-
-
-class NLayerPyramidDiscriminator(nn.Module):
-    """Defines a PatchGAN discriminator"""
-
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, alternate=False):
-        """Construct a PatchGAN discriminator
-
-        Parameters:
-            input_nc (int)  -- the number of channels in input images
-            ndf (int)       -- the number of filters in the last conv layer
-            n_layers (int)  -- the number of conv layers in the discriminator
-            norm_layer      -- normalization layer
-        """
-        super(NLayerPyramidDiscriminator, self).__init__()
-        kw = 4
-        padw = 1
-        nf_mult = 1
-        nf_mult_prev = 1
-        #256
-        self.conv1=nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay1 = torch.nn.InstanceNorm2d(32, affine=True)
-        self.relu1=nn.LeakyReLU(0.2, True)
-            
-        self.conv2=nn.Conv2d(32,64, kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay2 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.relu2=nn.LeakyReLU(0.2, True)
-
-            
-        self.conv3=nn.Conv2d(64, 64, kernel_size=4, stride=2, padding=1, bias=True)
-        self.lay3 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.relu3=nn.LeakyReLU(0.2, True)
-            
-        self.conv4=nn.Conv2d(64, 128,  kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay4 = torch.nn.InstanceNorm2d(128, affine=True)
-        self.relu4=nn.LeakyReLU(0.2, True)
-
-
-        self.conv5=nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay5 = torch.nn.InstanceNorm2d(128, affine=True)
-        self.relu5=nn.LeakyReLU(0.2, True)
-
-        self.SqueezeConv2=nn.Conv2d(128, 3,  kernel_size=3, stride=1, padding=1, bias=True)
-        self.SqueezeLay2 = torch.nn.InstanceNorm2d(3, affine=True)
-        self.SqueezeRelu2=nn.LeakyReLU(0.2, True)#64   
-
-        self.conv6=nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1, bias=True)
-        self.lay6 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.relu6=nn.LeakyReLU(0.2, True)
-            
-        self.conv7=nn.Conv2d(64, 64,  kernel_size=3, stride=1, padding=1, bias=True)
-        self.lay7 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.relu7=nn.LeakyReLU(0.2, True)
-
-        self.conv8=nn.Conv2d(64, 32,  kernel_size=3, stride=2, padding=1, bias=True)
-        self.lay8 = torch.nn.InstanceNorm2d(32, affine=True)
-        self.relu8=nn.LeakyReLU(0.2, True)
-
-
-
-        self.conv9 = nn.Conv2d(32, 1, kernel_size=kw, stride=1, padding=padw)
-
-
-    def forward(self, input):
-        """Standard forward."""
-        out1 = self.conv1(input)
-        out2 = self.lay1(out1)
-        out3 = self.relu1(out2)
-            
-        out4 = self.conv2(out3)
-        out5 = self.lay2(out4)
-        out6 = self.relu2(out5)
-
-        out7 = self.conv3(out6)
-        out8 = self.lay3(out7)
-        out9 = self.relu3(out8)
-
-        out10 = self.conv4(out9)
-        out11 = self.lay4(out10)
-        out12 = self.relu4(out11)
-
-#----------------------------
-        out13 = self.conv5(out12)
-        out14 = self.lay5(out13)
-        out15 = self.relu5(out14)
-            
-
-        out16 = self.SqueezeConv2(out15)
-        out17 = self.SqueezeLay2(out16)
-        squeeze2 = self.SqueezeRelu2(out17)
-
-
-        out4 = self.conv6(squeeze2)
-        out5 = self.lay6(out4)
-        out6 = self.relu6(out5)
-
-        out7 = self.conv7(out6)
-        out8 = self.lay7(out7)
-        out9 = self.relu7(out8)
-
-        out10 = self.conv8(out9)
-        out11 = self.lay8(out10)
-        out12 = self.relu8(out11)
-
-        out = self.conv9(out12)
-        
-        return out, squeeze2
-          
-
-class PixelDiscriminator(nn.Module): 
-    """Defines a 1x1 PatchGAN discriminator (pixelGAN)"""
-
-    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d):
-        """Construct a 1x1 PatchGAN discriminator
-
-        Parameters:
-            input_nc (int)  -- the number of channels in input images
-            ndf (int)       -- the number of filters in the last conv layer
-            norm_layer      -- normalization layer
-        """
-        super(PixelDiscriminator, self).__init__()
-        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-
-        self.net = [
-            nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0),
-            nn.LeakyReLU(0.2, True),
-            nn.Conv2d(ndf, ndf * 2, kernel_size=1, stride=1, padding=0, bias=use_bias),
-            norm_layer(ndf * 2),
-            nn.LeakyReLU(0.2, True),
-            nn.Conv2d(ndf * 2, 1, kernel_size=1, stride=1, padding=0, bias=use_bias)]
-
-        self.net = nn.Sequential(*self.net)
-
-    def forward(self, input):
-        """Standard forward."""
-        return self.net(input)
-
-
-
-
-class cascaded_model(nn.Module):
-    def __init__(self, input_nc, output_nc, res, filter_number):
-        super(cascaded_model, self).__init__()
-        self.res = res
-        self.count=0
-        self.D_m=[]
-        self.resVec = []
-        self.filter_number = filter_number
-        print("self.filter_number",self.filter_number)
-        self.findD_m(res)
-        D_m = self.D_m
-
-        
-
-        print("D_m------------------",D_m)
-        res = self.resVec
-        self.conv1=nn.Conv2d(input_nc, D_m[0], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv1.weight, 0, 0.02)
-
-        nn.init.constant_(self.conv1.bias, 0)
-
-        self.lay1 = torch.nn.InstanceNorm2d(D_m[1], affine=True)
-
-        #self.lay1=LayerNorm(D_m[1], eps=1e-12, affine=True)
-        
-        self.relu1=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        self.conv11=nn.Conv2d(D_m[1], D_m[1], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv11.weight, 0, 0.02)
-
-        nn.init.constant_(self.conv11.bias, 0)
-        self.lay11 = torch.nn.InstanceNorm2d(D_m[1], affine=True)
-        
-        self.relu11=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        #Layer2
-        
-        self.conv2=nn.Conv2d(D_m[1]+input_nc, D_m[2], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv2.weight, 0, 0.02)
-#        nn.init.constant(self.conv2.weight, 1)
-        nn.init.constant_(self.conv2.bias, 0)
-        self.lay2 = torch.nn.InstanceNorm2d(D_m[2], affine=True)
-#        self.lay2=nn.BatchNorm2d(D_m[2])
-        self.relu2=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        self.conv22=nn.Conv2d(D_m[2], D_m[2], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv22.weight, 0, 0.02)
-#        nn.init.constant(self.conv22.weight, 1)
-        nn.init.constant_(self.conv22.bias, 0)
-        self.lay22 = torch.nn.InstanceNorm2d(D_m[2], affine=True)
-#        self.lay2=nn.BatchNorm2d(D_m[2])
-        self.relu22=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        
-        #layer 3
-        
-        self.conv3=nn.Conv2d(D_m[2]+input_nc, D_m[3], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv3.weight, 0, 0.02)
-#        nn.init.constant(self.conv3.weight,1)
-        nn.init.constant_(self.conv3.bias, 0)
-        self.lay3 = torch.nn.InstanceNorm2d(D_m[3], affine=True)
-#        self.lay3=nn.BatchNorm2d(D_m[3])
-        self.relu3=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        self.conv33=nn.Conv2d(D_m[3], D_m[3], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv33.weight, 0, 0.02)
-        nn.init.constant_(self.conv33.bias, 0)
-        self.lay33 = torch.nn.InstanceNorm2d(D_m[3], affine=True)
-#        self.lay3=nn.BatchNorm2d(D_m[3])
-        self.relu33=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-               
-        #layer4
-                
-        self.conv4=nn.Conv2d(D_m[3]+input_nc, D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv4.weight, 0, 0.02)
-        nn.init.constant_(self.conv4.bias, 0)
-        self.lay4 = torch.nn.InstanceNorm2d(D_m[4], affine=True)
-#        self.lay4=nn.BatchNorm2d(D_m[4])
-        self.relu4=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        self.conv44=nn.Conv2d(D_m[4], D_m[4], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv44.weight, 0, 0.02)
-        nn.init.constant_(self.conv44.bias, 0)
-        self.lay44 = torch.nn.InstanceNorm2d(D_m[4], affine=True)
-#        self.lay4=nn.BatchNorm2d(D_m[4])
-        self.relu44=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        #layers5 
-        
-        self.conv5=nn.Conv2d(D_m[4]+input_nc, D_m[5], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv5.weight, 0, 0.02)
-        nn.init.constant_(self.conv5.bias, 0)
-        self.lay5 = torch.nn.InstanceNorm2d(D_m[5], affine=True)
-#        self.lay5=nn.BatchNorm2d(D_m[5])
-        self.relu5=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        self.conv55=nn.Conv2d(D_m[5], D_m[5], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv55.weight, 0, 0.02)
-        nn.init.constant_(self.conv55.bias, 0)
-        self.lay55 = torch.nn.InstanceNorm2d(D_m[5], affine=True)
-#        self.lay5=nn.BatchNorm2d(D_m[5])
-        self.relu55=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        #layer 6
-        
-        self.conv6=nn.Conv2d(D_m[5]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv6.weight, 0, 0.02)
-        nn.init.constant_(self.conv6.bias, 0)
-        self.lay6 = torch.nn.InstanceNorm2d(D_m[6], affine=True)
-#        self.lay6=nn.BatchNorm2d(D_m[6])
-        self.relu6=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        self.conv66=nn.Conv2d(D_m[6], D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv66.weight, 0, 0.02)
-        nn.init.constant_(self.conv66.bias, 0)
-        self.lay66=torch.nn.InstanceNorm2d(D_m[6], affine=True)
-#        self.lay6=nn.BatchNorm2d(D_m[6])
-        self.relu66=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        #layer7
-        self.conv7=nn.Conv2d(D_m[6]+input_nc, D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv7.weight, 0, 0.02)
-        nn.init.constant_(self.conv7.bias, 0)
-        self.lay7 = torch.nn.InstanceNorm2d(D_m[6], affine=True)
-#        self.lay6=nn.BatchNorm2d(D_m[6])
-        self.relu7=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        self.conv77=nn.Conv2d(D_m[6], D_m[6], kernel_size=3, stride=1, padding=1,bias=True)
-        nn.init.normal_(self.conv77.weight, 0, 0.02)
-        nn.init.constant_(self.conv77.bias, 0)
-        self.lay77 = torch.nn.InstanceNorm2d(D_m[6], affine=True)
-        self.relu77=nn.LeakyReLU(negative_slope=0.2,inplace=True)
-        
-        self.conv8=nn.Conv2d(D_m[6], (int)(D_m[6]/4), kernel_size=1, stride=1, padding=0,bias=True)
-        nn.init.normal_(self.conv8.weight, 0, 0.02)
-        nn.init.constant_(self.conv8.bias, 0)
-        self.lay8 = torch.nn.InstanceNorm2d((int)(D_m[6]/4), affine=True)
-        self.relu8 = nn.LeakyReLU(negative_slope=0.2,inplace=True)
-
-        self.conv9=nn.Conv2d((int)(D_m[6]/4), (int)(D_m[6]/8), kernel_size=1, stride=1, padding=0,bias=True)
-        nn.init.normal_(self.conv9.weight, 0, 0.02)
-        nn.init.constant_(self.conv9.bias, 0)
-        self.lay9 = torch.nn.InstanceNorm2d((int)(D_m[6]/8), affine=True)
-        self.relu9 = nn.LeakyReLU(negative_slope=0.2,inplace=True)
-
-        self.conv10=nn.Conv2d((int)(D_m[6]/8), output_nc, kernel_size=1, stride=1, padding=0,bias=True)
-        nn.init.normal_(self.conv10.weight, 0, 0.02)
-        nn.init.constant_(self.conv10.bias, 0)
-
-    def forward(self, label):
-        
-        self.D = []
-        self.count = 0
-        
-        self.recursive_img(label, self.res)
-        
-        out1= self.conv1(self.D[1])
-        L1=self.lay1(out1)
-        out2= self.relu1(L1)
-        
-        out11= self.conv11(out2)
-        
-        L11=self.lay11(out11)
-        out22= self.relu11(L11)
-        m = nn.functional.interpolate(out22, size=(self.D[1].size(3)*2, self.D[1].size(3)*2), mode='bilinear',align_corners=True)    
-        img1 = torch.cat((m, self.D[2]),1) 
-       
-        
-        out3= self.conv2(img1)
-        L2=self.lay2(out3)
-        out4= self.relu2(L2)
-        
-        out33= self.conv22(out4)
-        L22=self.lay22(out33)
-        out44= self.relu22(L22)
-        
-        m = nn.functional.interpolate(out44, size=(self.D[2].size(3)*2, self.D[2].size(3)*2), mode='bilinear',align_corners=True)    
-        
-        img2 = torch.cat((m, self.D[3]),1)
-        
-        out5= self.conv3(img2)
-        L3=self.lay3(out5)
-        out6= self.relu3(L3)
-        
-        out55= self.conv33(out6)
-        L33=self.lay33(out55)
-        out66= self.relu33(L33)
-        
-        m = nn.functional.interpolate(out66, size=(self.D[3].size(3)*2, self.D[3].size(3)*2), mode='bilinear',align_corners=True)    
-        
-        img3 = torch.cat((m, self.D[4]),1)
-        
-        out7= self.conv4(img3)
-        L4=self.lay4(out7)
-        out8= self.relu4(L4)
-        
-        out77= self.conv44(out8)
-        L44=self.lay44(out77)
-        out88= self.relu44(L44)
-
-        m = nn.functional.interpolate(out88, size=(self.D[4].size(3)*2, self.D[4].size(3)*2), mode='bilinear',align_corners=True)    
-        
-        img4 = torch.cat((m, self.D[5]),1)        
-        
-        out9= self.conv5(img4)
-        L5=self.lay5(out9)
-        out10= self.relu5(L5)
-        
-        out99= self.conv55(out10)
-        L55=self.lay55(out99)
-        out110= self.relu55(L55)
-#        L5=self.lay5(out10)
-        
-        m = nn.functional.interpolate(out110, size=(self.D[5].size(3)*2, self.D[5].size(3)*2), mode='bilinear',align_corners=True)  
-        
-        img5 = torch.cat((m, self.D[6]),1)
-               
-        out11= self.conv6(img5)
-        L6=self.lay6(out11)
-        out12= self.relu6(L6)
-        
-        out111= self.conv66(out12)
-        L66=self.lay66(out111)
-        out112= self.relu66(L66)
-        
-        m = nn.functional.interpolate(out112, size=(self.D[6].size(3)*2, self.D[6].size(3)*2), mode='bilinear',align_corners=True)  
-        
-        img6 = torch.cat((m, label),1)       
-         
-        out13 = self.conv7(img6)
-        L7 = self.lay7(out13)
-        out14 = self.relu7(L7)
-        
-        out113 = self.conv77(out14)
-        L77 = self.lay77(out113)
-        out114 = self.relu77(L77)
-        
-        out15 = self.conv8(out114)
-        L8 = self.lay8(out15)
-        out16 = self.relu8(L8)
-
-        out17 = self.conv9(out16)
-        L9  = self.lay9(out17)
-        out18= self.relu9(L9)
-
-        out19= self.conv10(out18)
-
-
-        #out15=(out15+1.0)/2.0*255.0
-        
-        out20,out21,out22=torch.chunk(out19.permute(1,0,2,3),3,0)
-        out=torch.cat((out20,out21,out22),1)
-
-        return out
-
-    def recursive_img(self, label, res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
-    #    #M_low will start from 4x8 to resx2*res
-        if res == 4:
-            downsampled = label #torch.unsqueeze(torch.from_numpy(label).float().permute(2,0,1), dim=0)
-        else:
-            max1=nn.AvgPool2d(kernel_size=2, padding=0, stride=2)
-            downsampled=max1(label)
-            img = self.recursive_img(downsampled, res//2)
-        self.D.insert(self.count, downsampled)
-        self.count+=1
-        return downsampled  
-
-    def findD_m(self,res): #Resulution may refers to the final image output i.e. 256x512 or 512x1024
-        #print("self.filter_number_2",self.filter_number)
-        dim=(int)(self.filter_number/4)
-        if res >= int(self.res/2):
-            dim = (int)(self.filter_number)
-        elif res >= int(self.res/8):
-            dim= (int)(self.filter_number/2)
-
-        if res != 4:
-            img = self.findD_m(res//2)
-        self.D_m.insert(self.count, dim)
-        self.resVec.insert(self.count, res)
-        self.count+=1
-        return res 
+        return self.model(newInput), squeezed
 
 
 class VGG19(nn.Module):
@@ -1505,20 +1076,20 @@ class VGG19(nn.Module):
         out16=self.relu7(out15)
         out17=self.conv8(out16)
         out18=self.relu8(out17)
-        out19=self.max3(out18)    
+        #out19=self.max3(out18)    
        
-        out20=self.conv9(out19)
-        out21=self.relu9(out20)
+        #out20=self.conv9(out19)
+        #out21=self.relu9(out20)
             
-        out22=self.conv10(out21)
-        out23=self.relu10(out22)
+        #out22=self.conv10(out21)
+        #out23=self.relu10(out22)
             
-        out24=self.conv11(out23)
-        out25=self.relu11(out24)         
-        out26=self.conv12(out25)
-        out27=self.relu12(out26)
+        #out24=self.conv11(out23)
+        #out25=self.relu11(out24)         
+        #out26=self.conv12(out25)
+        #out27=self.relu12(out26)
 
-        out28=self.max4(out27)           
+        #out28=self.max4(out27)           
         #out29=self.conv13(out28)
         #out30=self.relu13(out29)
           
@@ -1533,5 +1104,5 @@ class VGG19(nn.Module):
 
         #out37=self.max5(out36)
 
-        return  out2, out7, out9, out18, out28#, out36                   #Add appropriate outputs
+        return  out4, out7, out9, out18#, out27#, out36                   #Add appropriate outputs
 

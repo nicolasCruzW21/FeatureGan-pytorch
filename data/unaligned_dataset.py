@@ -3,7 +3,7 @@ from data.base_dataset import BaseDataset, get_transform, get_params
 from data.image_folder import make_dataset
 from PIL import Image
 import random
-
+import torchvision.transforms.functional as TF
 
 class UnalignedDataset(BaseDataset):
     """
@@ -62,18 +62,26 @@ class UnalignedDataset(BaseDataset):
 
         if(self.label):
             L_path = B_path.replace("B","B_L")
-
+        
         A_img = Image.open(A_path).convert('RGB')
         B_img = Image.open(B_path).convert('RGB')
         if(self.label):
-            L_img = Image.open(L_path).convert('RGB')
+            L_path = L_path.replace("_real_B_L","_label")
+            L_img = Image.open(L_path).convert('L')
         # apply image transformation
+        rotate = True
+        if (rotate):
+            rotate = random.randint(-12, 12)
+            A_img = TF.rotate(A_img, rotate)
+            B_img = TF.rotate(B_img, rotate)
+            L_img = TF.rotate(L_img, rotate)
+        
         if(self.label):
             #self.opt.crop_size = random.randint((int)(self.original_crop/2), (int)(self.opt.load_size/2))*2
             transform_params = get_params(self.opt, B_img.size)
-            self.transform_B = get_transform(self.opt, transform_params, grayscale=False, rotate = False)
-            self.transform_A = get_transform(self.opt, transform_params, grayscale=False, rotate = False)
-            self.transform_L = get_transform(self.opt, transform_params, grayscale=False, rotate = False, method=Image.NEAREST)
+            self.transform_B = get_transform(self.opt, transform_params, grayscale=False, rotate = True)
+            self.transform_A = get_transform(self.opt, transform_params, grayscale=False, rotate = True)
+            self.transform_L = get_transform(self.opt, transform_params, grayscale=True, rotate = True, method=Image.NEAREST)
 
 
         #print("---------------------------------------------")

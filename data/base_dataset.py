@@ -9,7 +9,7 @@ import torch.utils.data as data
 from PIL import Image
 import torchvision.transforms as transforms
 from abc import ABC, abstractmethod
-
+import torchvision.transforms.functional as TF
 
 class BaseDataset(data.Dataset, ABC):
     """This class is an abstract base class (ABC) for datasets.
@@ -75,11 +75,10 @@ def get_params(opt, size):
     y = random.randint(0, np.maximum(0, new_h - opt.crop_size))
 
     flip = random.random() > 0.5
-
     return {'crop_pos': (x, y), 'flip': flip}
 
 
-def get_transform(opt, params=None, grayscale=False, rotate = False, method=Image.BICUBIC, convert=True):
+def get_transform(opt, params = None, grayscale = False, rotate = False, method=Image.BICUBIC, convert = True):
     transform_list = []
     if grayscale:
         transform_list.append(transforms.Grayscale(1))
@@ -88,13 +87,7 @@ def get_transform(opt, params=None, grayscale=False, rotate = False, method=Imag
         transform_list.append(transforms.Resize(osize, method))
     elif 'scale_width' in opt.preprocess:
         transform_list.append(transforms.Lambda(lambda img: __scale_width(img, opt.load_size, opt.crop_size, method)))
-    if(rotate):
-        theta = 7
-        print("rotation activated", theta)
-        transform_list.append(transforms.RandomRotation(theta, resample= 2, expand=True, center=None, fill=None))
-        thetaRad = theta * math.pi/180.0
-        h = opt.load_size - 2 * 9 #opt.load_size * math.sin(thetaRad)
-        transform_list.append(transforms.CenterCrop(h))
+
 
     if 'crop' in opt.preprocess:
         if params is None:
