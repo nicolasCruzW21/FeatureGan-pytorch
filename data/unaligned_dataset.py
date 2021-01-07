@@ -22,7 +22,7 @@ class UnalignedDataset(BaseDataset):
         Parameters:
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
-        self.label=True
+        self.label=False
         BaseDataset.__init__(self, opt)
         self.dir_A = os.path.join(opt.dataroot, opt.phase + 'A')  # create a path '/path/to/data/trainA'
         self.dir_B = os.path.join(opt.dataroot, opt.phase + 'B')  # create a path '/path/to/data/trainB'
@@ -74,7 +74,8 @@ class UnalignedDataset(BaseDataset):
             rotate = random.randint(-12, 12)
             A_img = TF.rotate(A_img, rotate)
             B_img = TF.rotate(B_img, rotate)
-            L_img = TF.rotate(L_img, rotate)
+            if(self.label):
+                L_img = TF.rotate(L_img, rotate)
         
         if(self.label):
             #self.opt.crop_size = random.randint((int)(self.original_crop/2), (int)(self.opt.load_size/2))*2
@@ -87,7 +88,8 @@ class UnalignedDataset(BaseDataset):
         #print("---------------------------------------------")
         A = self.transform_A(A_img)
         B = self.transform_B(B_img)
-        L = self.transform_L(L_img)
+        if(self.label):
+            L = self.transform_L(L_img)
         self.opt.crop_size = self.original_crop
         if(self.label):
             return {'A': A, 'B': B, 'L': L, 'A_paths': A_path, 'B_paths': B_path, 'L_paths': L_path}

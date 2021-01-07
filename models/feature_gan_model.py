@@ -34,8 +34,11 @@ class FeatureGANModel(BaseModel):
         
 
         if self.isTrain:
-            visual_names_B = ['real_A','real_B','seg_cars_target','seg_cars', 'fake_A', 'fake_A_D','lines_real_B', 'lines_fake_A', 'robots_real_B', 'robots_fake_A', 'field_real_B', 'field_fake_A', 'shirt_real_B', 'shirt_fake_A','squeeze_real_M1','squeeze_fake_M1']
-            self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M', 'G_B_G', 'F_B', 'F_B_robots', 'F_B_field', 'F_B_shirt', 'F_B_lines', 'G', 'idt_B']
+            visual_names_B = ['real_A','real_B', 'fake_A', 'fake_A_D', 'squeeze_real_M1','squeeze_fake_M1']
+            self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M', 'G_B_G', 'F_B', 'G', 'idt_B']
+
+            #visual_names_B = ['real_A','real_B','seg_cars_target','seg_cars', 'fake_A', 'fake_A_D','lines_real_B', 'lines_fake_A', 'robots_real_B', 'robots_fake_A', 'field_real_B', 'field_fake_A', 'shirt_real_B', 'shirt_fake_A','squeeze_real_M1','squeeze_fake_M1']
+            #self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M', 'G_B_G', 'F_B', 'F_B_robots', 'F_B_field', 'F_B_shirt', 'F_B_lines', 'G', 'idt_B']
         else:
             visual_names_B = ['real_B', 'fake_A']
             self.loss_names = ['idt_B']
@@ -48,7 +51,7 @@ class FeatureGANModel(BaseModel):
         else:  
             self.model_names = ['G_B']
 
-        self.netG_B = networks.define_G(8, 8, 72, opt.netG, opt.norm,
+        self.netG_B = networks.define_G(3, 3, 72, opt.netG, opt.norm,
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
         if self.isTrain:  # define discriminators
@@ -84,17 +87,9 @@ class FeatureGANModel(BaseModel):
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
 
-           
-            factorField = 16#400000 #4 zebra 10 elephant #0.5 last of us
-            factorShirt = 16
-            factorRobots = 10
-            factorLines = 8
-                
-            
-            self.criterionFeatureField = networks.FeatureLoss(8*factorField ,      4*factorField,      1*factorField,      "MSE").to(self.device)
-            self.criterionFeatureShirt = networks.FeatureLoss(8*factorShirt ,      4*factorShirt,      1*factorShirt,      "L1").to(self.device)
-            self.criterionFeatureRobots = networks.FeatureLoss(6*factorRobots ,      4*factorRobots,      1*factorRobots,      "L1").to(self.device)
-            self.criterionFeatureLines = networks.FeatureLoss(3*factorLines ,      4*factorLines,      1*factorLines,      "MSE").to(self.device)
+            factorAll = 8
+
+            self.criterionFeatureRobots = networks.FeatureLoss(6*factorAll ,      4*factorAll,      1*factorAll,      "L1").to(self.device)
 
             self.criterionL1 = torch.nn.L1Loss()
             self.criterionL2 = torch.nn.MSELoss()
@@ -141,27 +136,15 @@ class FeatureGANModel(BaseModel):
         AtoB = self.opt.direction == 'AtoB'
         self.real_A = input['A' if AtoB else 'B'].to(self.device)
         self.real_B = input['B' if AtoB else 'A'].to(self.device)
-        self.real_L = input['L' if AtoB else 'L'].to(self.device)
+        #self.real_L = input['L' if AtoB else 'L'].to(self.device)
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         if self.isTrain:
-            self.hot_image = self.one_hot(self.real_B, self.real_L).unsqueeze(0)
-            result = self.netG_B(self.hot_image)
-            self.fake_A = result[:,:3,:,:]
-            self.seg = result[:,3:,:,:]
+            self.fake_A = self.netG_B(self.real_B)
         else:
-            #self.gtFine_labelIds = self.getIds(self.real_L).unsqueeze(0)
-            self.hot_image = self.one_hot(self.real_B, self.real_L).unsqueeze(0)
-            result = self.netG_B(self.hot_image)
-            self.fake_A = result[:,:3,:,:]
-            self.seg = result[:,3:,:,:]
-            #self.leftImg8bit =result[:,:3,:,:]
-            #self.leftImg8bit_r = self.real_B
-            self.loss_idt_B = self.criterionSeg(result[:,3:,:,:],self.hot_image[:,3:,:,:])
-                
-            #self.seg_cars = self.sig(result[:,21:24,:,:])
+            self.fake_A = self.netG_B(self.real_B)
 
 
     def backward_D_basic(self, netD, real, fake):
@@ -230,45 +213,12 @@ class FeatureGANModel(BaseModel):
         else:
             self.loss_idt_A = 0
         
-        
-        bool_back = (self.get_one_hot(0,self.real_L) )#background
-        bool_shirt = (self.get_one_hot(51,self.real_L) )#shirt
-        bool_robots = (self.get_one_hot(101,self.real_L) )#robots
-        bool_lines = (self.get_one_hot(151,self.real_L) )#lines
-        bool_field = (self.get_one_hot(255,self.real_L) )#field
 
-        
-
-
-
-        self.shirt_real_B = (self.real_B.squeeze(0) * bool_shirt).unsqueeze(0)
-        self.shirt_fake_A = (self.fake_A.squeeze(0) * bool_shirt).unsqueeze(0)
-
-        self.lines_real_B = (self.real_B.squeeze(0) * bool_lines).unsqueeze(0)
-        self.lines_fake_A = (self.fake_A.squeeze(0) * bool_lines).unsqueeze(0)
-
-        self.field_real_B = (self.real_B.squeeze(0) * bool_field).unsqueeze(0)
-        self.field_fake_A = (self.fake_A.squeeze(0) * bool_field).unsqueeze(0)
-
-        self.robots_real_B = (self.real_B.squeeze(0) * bool_robots).unsqueeze(0)
-        self.robots_fake_A = (self.fake_A.squeeze(0) * bool_robots).unsqueeze(0)
-        
-
-
-        toVGG0 = torch.cat([self.robots_fake_A, self.robots_real_B], 0)
-        toVGG1 = torch.cat([self.field_fake_A, self.field_real_B], 0)
-        toVGG = torch.cat([toVGG0, toVGG1], 0)
+        toVGG = torch.cat([self.fake_A, self.real_B], 0)
+	
         out0, out1, out2, out3 = self.calculate_Features(self.upsample_Feature(toVGG))
-        self.loss_F_B_robots, _, _, _= self.criterionFeatureRobots(out1[1,:,:,:], out2[1,:,:,:], out3[1,:,:,:], out1[0,:,:,:], out2[0,:,:,:], out3[0,:,:,:])
-        self.loss_F_B_field, _, _, _= self.criterionFeatureField(out1[3,:,:,:], out2[3,:,:,:], out3[3,:,:,:], out1[2,:,:,:], out2[2,:,:,:], out3[2,:,:,:])
+        self.loss_F_B, _, _, _= self.criterionFeatureRobots(out1[1,:,:,:], out2[1,:,:,:], out3[1,:,:,:], out1[0,:,:,:], out2[0,:,:,:], out3[0,:,:,:])
 
-
-        toVGG1 = torch.cat([self.shirt_fake_A, self.shirt_real_B], 0)
-        toVGG2 = torch.cat([self.lines_fake_A, self.lines_real_B], 0)
-        toVGG = torch.cat([self.fake_A, toVGG1, toVGG2], 0)
-        out0, out1, out2, out3 = self.calculate_Features(self.upsample_Feature(toVGG))
-        self.loss_F_B_shirt, _, _, _= self.criterionFeatureShirt(out1[2,:,:,:], out2[2,:,:,:], out3[2,:,:,:], out1[1,:,:,:], out2[1,:,:,:], out3[1,:,:,:])
-        self.loss_F_B_lines, _, _, _= self.criterionFeatureLines(out1[4,:,:,:], out2[4,:,:,:], out3[4,:,:,:], out1[3,:,:,:], out2[3,:,:,:], out3[3,:,:,:])
 
 
         concat_fake_A_M = torch.cat([ self.upsample_M(out0[0,:,:,:].unsqueeze(0)), self.upsample_M(out1[0,:,:,:].unsqueeze(0)), self.upsample_M(out2[0,:,:,:].unsqueeze(0))], 1)
@@ -284,19 +234,15 @@ class FeatureGANModel(BaseModel):
         self.loss_G_B_G = self.criterionGAN(c, True)
 
         self.loss_G_B = self.loss_G_B_M * 2/3 + self.loss_G_B_G * 1/3
-        
-        self.loss_idt_B =  3*self.criterionSeg(self.seg, self.hot_image[:,3:,:,:])
-        
-        self.seg_cars = self.sig(self.seg[:,0:3,:,:])
-        self.seg_cars_target = self.hot_image[:,3:6,:,:]
+
+        self.loss_idt_B = 0
+
 
 
         
 
 #--------------------------------Total------------------------------------------------------
 
-
-        self.loss_F_B = self.loss_F_B_robots + self.loss_F_B_field + self.loss_F_B_shirt + self.loss_F_B_lines
         self.loss_G = self.loss_F_B + self.loss_idt_B + self.loss_G_B   
 
 
