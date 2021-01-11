@@ -72,6 +72,8 @@ class FeatureGANModel(BaseModel):
         else:
             self.netG_B=self.netG_B.eval()
             self.set_requires_grad([self.netG_B], False)
+            self.loss_idt_B = 0
+
 		
  
         self.lay0 = torch.nn.InstanceNorm2d(3, affine=False).cuda()
