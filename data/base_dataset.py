@@ -76,7 +76,12 @@ def get_params(opt, size):
 
     flip = random.random() > 0.5
 
-    return {'crop_pos': (x, y), 'flip': flip}
+	theta = 90
+	rotate = transforms.RandomRotation(theta, resample= 2, expand=True, center=None, fill=None)
+	thetaRad = theta * math.pi/180.0
+	h = opt.load_size - 2 * 9 #opt.load_size * math.sin(thetaRad)
+	rotate_crop = transforms.CenterCrop(h)
+    return {'crop_pos': (x, y), 'flip': flip , 'rotate': rotate, 'rotate_crop': rotate_crop}
 
 
 def get_transform(opt, params=None, grayscale=False, rotate = False, method=Image.BICUBIC, convert=True):
@@ -89,12 +94,8 @@ def get_transform(opt, params=None, grayscale=False, rotate = False, method=Imag
     elif 'scale_width' in opt.preprocess:
         transform_list.append(transforms.Lambda(lambda img: __scale_width(img, opt.load_size, opt.crop_size, method)))
     if(rotate):
-        theta = 7
-        print("rotation activated", theta)
-        transform_list.append(transforms.RandomRotation(theta, resample= 2, expand=True, center=None, fill=None))
-        thetaRad = theta * math.pi/180.0
-        h = opt.load_size - 2 * 9 #opt.load_size * math.sin(thetaRad)
-        transform_list.append(transforms.CenterCrop(h))
+        transform_list.append(params['rotate'])
+        transform_list.append(params['rotate_crop'])
 
     if 'crop' in opt.preprocess:
         if params is None:

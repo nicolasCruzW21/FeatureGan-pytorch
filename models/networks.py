@@ -1518,7 +1518,7 @@ class VGG19(nn.Module):
         out26=self.conv12(out25)
         out27=self.relu12(out26)
 
-        out28=self.max4(out27)           
+        #out28=self.max4(out27)           
         #out29=self.conv13(out28)
         #out30=self.relu13(out29)
           
@@ -1533,5 +1533,5 @@ class VGG19(nn.Module):
 
         #out37=self.max5(out36)
 
-        return  out2, out7, out9, out18, out28#, out36                   #Add appropriate outputs
+        return  out4, out7, out9, out18, out27#, out36                   #Add appropriate outputs
 
