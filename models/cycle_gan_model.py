@@ -93,8 +93,8 @@ class CycleGANModel(BaseModel):
 
         if self.isTrain:
             visual_names_A = []
-            visual_names_B = ['real_A','real_B', 'fake_A', 'fake_A_D','squeeze_real_M1','squeeze_real_G1','squeeze_fake_M1','squeeze_fake_G1']
-            self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M', 'G_B_G', 'F_B', 'F_B_Image', 'F_B_Small', 'F_B_Big', 'G']
+            visual_names_B = ['real_A','real_B','seg_cars_target','seg_cars', 'fake_A', 'fake_A_D','squeeze_real_M1','squeeze_real_G1','squeeze_fake_M1','squeeze_fake_G1']
+            self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M', 'G_B_G', 'F_B', 'F_B_Image', 'F_B_Small', 'F_B_Big', 'G', 'idt_B']
         else:
             visual_names_B = ['gtFine_labelIds', 'leftImg8bit', 'leftImg8bit_r']
             self.loss_names = ['idt_B']
@@ -225,7 +225,7 @@ class CycleGANModel(BaseModel):
 
             result = self.netG_B(self.hot_image)#self.avg_pool(self.real_B))# G_B(B)
             self.fake_A = result[:,:3,:,:]
-            #self.seg = result[:,3:,:,:]
+            self.seg = result[:,3:,:,:]
 
 
             #result = self.netG_B(torch.cat([self.real_A,self.hot_image[:,3:,:,:]*0],1))#self.avg_pool(self.real_B))# G_B(B)
@@ -428,15 +428,15 @@ class CycleGANModel(BaseModel):
 
 
         toVGG0 = torch.cat([self.fake_A, self.real_B], 0)
-        #toVGG1 = torch.cat([self.small_fake_A, self.small_real_B], 0)
-        #toVGG2 = torch.cat([self.big_fake_A, self.big_real_B], 0)
-        #toVGG = torch.cat([toVGG0, toVGG1, toVGG2], 0)
+        toVGG1 = torch.cat([self.small_fake_A, self.small_real_B], 0)
+        toVGG2 = torch.cat([self.big_fake_A, self.big_real_B], 0)
+        toVGG = torch.cat([toVGG0, toVGG1, toVGG2], 0)
 
         #Feature Loss
-        out0, out1, out2, out3, out4  = self.calculate_Features(self.upsample_Feature(toVGG0))
+        out0, out1, out2, out3, out4  = self.calculate_Features(self.upsample_Feature(toVGG))
         self.loss_F_B_Image , _, _, _= self.criterionFeatureImage(out1[1,:,:,:], out2[1,:,:,:], out4[1,:,:,:], out1[0,:,:,:], out2[0,:,:,:], out4[0,:,:,:])
-        self.loss_F_B_Small = 0#, _, _, _= self.criterionFeatureSmall(out1[3,:,:,:], out2[3,:,:,:], out4[3,:,:,:], out1[2,:,:,:], out2[2,:,:,:], out4[2,:,:,:])
-        self.loss_F_B_Big= 0#, _, _, _= 0#self.criterionFeatureBig(out0[5,:,:,:], out2[5,:,:,:], out3[5,:,:,:], out0[4,:,:,:], out2[4,:,:,:], out3[4,:,:,:])
+        self.loss_F_B_Small , _, _, _= self.criterionFeatureSmall(out1[3,:,:,:], out2[3,:,:,:], out4[3,:,:,:], out1[2,:,:,:], out2[2,:,:,:], out4[2,:,:,:])
+        self.loss_F_B_Big, _, _, _= self.criterionFeatureBig(out0[5,:,:,:], out2[5,:,:,:], out3[5,:,:,:], out0[4,:,:,:], out2[4,:,:,:], out3[4,:,:,:])
 
         #concat_fake_A_L = torch.cat([self.upsample_L(out3[0,:,:,:].unsqueeze(0)), self.upsample_L(out2[0,:,:,:].unsqueeze(0))], 1)
         #concat_fake_A_L = torch.cat([self.upsample_L(self.fake_A), concat_fake_A_L], 1)
@@ -464,11 +464,11 @@ class CycleGANModel(BaseModel):
 
         self.loss_G_B = self.loss_G_B_M * 1/2 + self.loss_G_B_G * 1/2 #+ self.loss_G_B_L * 1/4
         
-        self.loss_idt_B =  0#3*self.criterionSeg(self.seg, self.hot_image[:,3:,:,:])
+        self.loss_idt_B =  3*self.criterionSeg(self.seg, self.hot_image[:,3:,:,:])
         
-        #self.seg_cars = self.sig(self.seg[:,18:21,:,:])
+        self.seg_cars = self.sig(self.seg[:,18:21,:,:])
         #self.seg_cars_idt = self.seg_idt[:,18:21,:,:]
-        #self.seg_cars_target = self.hot_image[:,21:24,:,:]
+        self.seg_cars_target = self.hot_image[:,21:24,:,:]
 
 
         

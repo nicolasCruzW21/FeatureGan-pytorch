@@ -76,11 +76,11 @@ def get_params(opt, size):
 
     flip = random.random() > 0.5
 
-	theta = 90
-	rotate = transforms.RandomRotation(theta, resample= 2, expand=True, center=None, fill=None)
-	thetaRad = theta * math.pi/180.0
-	h = opt.load_size - 2 * 9 #opt.load_size * math.sin(thetaRad)
-	rotate_crop = transforms.CenterCrop(h)
+    theta = 90
+    rotate = transforms.RandomRotation(theta, resample= 2, expand=True, center=None, fill=None)
+    thetaRad = theta * math.pi/180.0
+    h = opt.load_size - 2 * 9 #opt.load_size * math.sin(thetaRad)
+    rotate_crop = transforms.CenterCrop(h)
     return {'crop_pos': (x, y), 'flip': flip , 'rotate': rotate, 'rotate_crop': rotate_crop}
 
 
