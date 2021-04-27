@@ -39,3 +39,4 @@ Then:
 
 The generated images are placed in the folder "results", the traced model "traced_unet_512" is on the main folder.
 
+python train.py --dataroot ./datasets/zeke --name zeke --model feature_gan --netG unet_128 --load_size 296 --crop_size 256 --lr 0.0001 --n_epochs 50 --n_epochs_decay 50 --print_freq 10 --display_freq 10

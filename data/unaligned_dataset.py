@@ -23,15 +23,19 @@ class UnalignedDataset(BaseDataset):
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         self.label=False
+        self.domain=True
         BaseDataset.__init__(self, opt)
         self.dir_A = os.path.join(opt.dataroot, opt.phase + 'A')  # create a path '/path/to/data/trainA'
         self.dir_B = os.path.join(opt.dataroot, opt.phase + 'B')  # create a path '/path/to/data/trainB'
+        self.dir_D = os.path.join(opt.dataroot, 'domain')  # create a path '/path/to/data/trainB'
  
         self.A_paths = sorted(make_dataset(self.dir_A, opt.max_dataset_size))   # load images from '/path/to/data/trainA'
         self.B_paths = sorted(make_dataset(self.dir_B, opt.max_dataset_size))    # load images from '/path/to/data/trainB'
+        self.D_paths = sorted(make_dataset(self.dir_D, opt.max_dataset_size))    # load images from '/path/to/data/trainB'
 
         self.A_size = len(self.A_paths)  # get the size of dataset A
         self.B_size = len(self.B_paths)  # get the size of dataset B
+        self.D_size = len(self.D_paths)  # get the size of dataset B
 
         btoA = self.opt.direction == 'BtoA'
         input_nc = self.opt.output_nc if btoA else self.opt.input_nc       # get the number of channels of input image
@@ -39,7 +43,7 @@ class UnalignedDataset(BaseDataset):
         self.original_crop = opt.crop_size
         if(not self.label):
             self.transform_B = get_transform(self.opt, grayscale=(output_nc == 1), rotate = True)
-            self.transform_A = get_transform(self.opt, grayscale=(input_nc == 1), rotate = False)
+            self.transform_A = get_transform(self.opt, grayscale=(input_nc == 1), rotate = True)
             
     def __getitem__(self, index):
         """Return a data point and its metadata information.
@@ -68,14 +72,20 @@ class UnalignedDataset(BaseDataset):
         if(self.label):
             L_path = L_path.replace("_real_B_L","_label")
             L_img = Image.open(L_path).convert('L')
+        if(self.domain):
+            index_D = random.randint(0, self.D_size - 1)
+            D_path = self.D_paths[index_D]
+            D_img = Image.open(D_path).convert('RGB')
         # apply image transformation
         rotate = True
         if (rotate):
-            rotate = random.randint(-12, 12)
+            rotate = random.randint(-6, 6)
             A_img = TF.rotate(A_img, rotate)
             B_img = TF.rotate(B_img, rotate)
             if(self.label):
                 L_img = TF.rotate(L_img, rotate)
+            #if(self.domain):
+                #D_img = TF.rotate(D_img, rotate)
         
         if(self.label):
             #self.opt.crop_size = random.randint((int)(self.original_crop/2), (int)(self.opt.load_size/2))*2
@@ -88,11 +98,15 @@ class UnalignedDataset(BaseDataset):
         #print("---------------------------------------------")
         A = self.transform_A(A_img)
         B = self.transform_B(B_img)
+        if(self.domain):
+            D = self.transform_B(D_img)
         if(self.label):
             L = self.transform_L(L_img)
         self.opt.crop_size = self.original_crop
         if(self.label):
             return {'A': A, 'B': B, 'L': L, 'A_paths': A_path, 'B_paths': B_path, 'L_paths': L_path}
+        elif(self.domain):
+            return {'A': A, 'B': B, 'D': D, 'A_paths': A_path, 'B_paths': B_path, 'D_paths': D_path}
         else:
             return {'A': A, 'B': B, 'A_paths': A_path, 'B_paths': B_path}
 
