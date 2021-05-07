@@ -5,6 +5,8 @@ import functools
 from torch.optim import lr_scheduler
 import os, scipy.io
 import numpy as np
+import math
+import torch.nn.functional as F
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -164,6 +166,10 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         net = UnetGenerator(input_nc, output_nc, 4, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif netG == 'unetv2_128':
+        net = UnetGeneratorModified(input_nc, output_nc, 6, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif netG == 'unetv2_256':
+        net = UnetGeneratorModified(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'cascade':
         net = cascaded_model(input_nc, output_nc , 256, ngf)
     else:
@@ -306,7 +312,7 @@ class GANLoss(nn.Module):
     that has the same size as the input.
     """
 
-    def __init__(self, gan_mode, target_real_label=0.9, target_fake_label=0.0):
+    def __init__(self, gan_mode, target_real_label=1, target_fake_label=0.0):
         """ Initialize the GANLoss class.
 
         Parameters:
@@ -320,6 +326,7 @@ class GANLoss(nn.Module):
         super(GANLoss, self).__init__()
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
+        print(gan_mode)
         self.gan_mode = gan_mode
         if gan_mode == 'lsgan':
             self.loss = nn.MSELoss()
@@ -347,7 +354,7 @@ class GANLoss(nn.Module):
             target_tensor = self.fake_label
         return target_tensor.expand_as(prediction)
 
-    def __call__(self, prediction, target_is_real):
+    def __call__(self, prediction, target_is_real, mask):
         """Calculate loss given Discriminator's output and grount truth labels.
 
         Parameters:
@@ -359,7 +366,13 @@ class GANLoss(nn.Module):
         """
         if self.gan_mode in ['lsgan', 'vanilla']:
             target_tensor = self.get_target_tensor(prediction, target_is_real)
-            loss = self.loss(prediction, target_tensor)
+            sumMask = torch.sum(mask)
+            #print(sumMask)
+            sumMask=max(sumMask,1)
+            #print(sumMask)
+            loss = self.loss(prediction*mask, target_tensor*mask)*(512*512)/sumMask
+
+            
         elif self.gan_mode == 'wgangp':
             if target_is_real:
                 loss = -prediction.mean()
@@ -654,7 +667,7 @@ class ResnetGenerator(nn.Module):
     We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
     """
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.InstanceNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
         """Construct a Resnet-based generator
         Parameters:
             input_nc (int)      -- the number of channels in input images
@@ -671,41 +684,89 @@ class ResnetGenerator(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
+        
+        depth_out = int(3)
 
+        modelDepth = [nn.ReflectionPad2d(5),
+                 nn.Conv2d(input_nc-3, int(ngf/2), kernel_size=7, padding=0, bias=use_bias),
+                 norm_layer(int(ngf/2)),
+                 nn.ReLU(True)]
 
-        model = [nn.ReflectionPad2d(3),
-                 nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias),
+        modelDepth += [nn.Conv2d(int(ngf/2), int(ngf/2), kernel_size=3, padding=0, bias=use_bias),
+                 norm_layer(int(ngf/2)),
+                 nn.ReLU(True)]
+
+        modelDepth += [nn.Conv2d(int(ngf/2), depth_out, kernel_size=3, padding=0, bias=use_bias),
+                 norm_layer(depth_out),
+                 nn.ReLU(True)]
+
+        modelDown = [nn.ReflectionPad2d(3),
+                 nn.Conv2d(input_nc-1+depth_out, ngf, kernel_size=7, padding=0, bias=use_bias),
                  norm_layer(ngf),
                  nn.ReLU(True)]
 
         n_downsampling = 2
         for i in range(n_downsampling):  # add downsampling layers
             mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
+            modelDown += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
                       norm_layer(ngf * mult * 2),
                       nn.ReLU(True)]
 
+        model_select = [nn.Conv2d(ngf * mult*2, 22, kernel_size=5, padding=0, bias=use_bias)]
+        #model_select2 = [torch.nn.LayerNorm([22, 1, 1], elementwise_affine=False), nn.ReLU(True)]
+
+
         mult = 2 ** n_downsampling
+
+        modelUp = [nn.Conv2d(ngf * mult+1, ngf * mult, kernel_size=1, padding=0, bias=use_bias),
+                 norm_layer(ngf * mult),
+                 nn.ReLU(True)]
+
         for i in range(n_blocks):       # add ResNet blocks
+            modelUp += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
+        
         for i in range(n_downsampling):  # add upsampling layers
             mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
+            modelUp += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
                                          kernel_size=3, stride=2,
                                          padding=1, output_padding=1,
                                          bias=use_bias),
                       norm_layer(int(ngf * mult / 2)),
                       nn.ReLU(True)]
-        model += [nn.ReflectionPad2d(3)]
-        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        model += [nn.Tanh()]
-
-        self.model = nn.Sequential(*model)
-    def forward(self, input):
+        modelUp += [nn.ReflectionPad2d(3)]
+        modelUp += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
+        modelUp += [nn.Tanh()]
+        self.model_select = nn.Sequential(*model_select)
+        #self.model_select2 = nn.Sequential(*model_select2)
+        self.modelDown = nn.Sequential(*modelDown)
+        self.model = nn.Sequential(*modelUp)
+        self.depth = nn.Sequential(*modelDepth)
+        self.ones = torch.ones([1,3,512,512]).cuda()
+        self.soft = nn.Softmax(dim=1)
+    def forward(self, input, input2):
         """Standard forward"""
-        return self.model(input)
+        depth=input[:,3,:,:].unsqueeze(0)
+        #print("depth",depth.shape, input.shape)
+        out_depth = self.depth(depth)
+        #print("out_depth",out_depth.shape)
+        input_concat = torch.cat([input[:,0:3,:,:], out_depth],1)
+        #print("input_concat",input_concat.shape)
+        temp = self.modelDown(input_concat)
+        select = F.adaptive_avg_pool2d(self.model_select(temp), (1, 1))
+        #print(select.shape)
+        select = self.soft(select)
+        #print(select)
+        in2 = torch.sum((input2 * select), 1).unsqueeze(1)
+        RGB = self.model(torch.cat([temp, in2],1))
+        #RGB = RGB_ponderator[:,0:3,:,:]
+        #ponderator = torch.clamp(RGB_ponderator[:,3:6,:,:],0,1)
+        #print(RGB.shape, ponderator.shape, input[:,0:3,:,:].shape,(self.ones - ponderator).shape)
+        #print(ponderator)
+        #final = RGB * ponderator + input[:,0:3,:,:] * (self.ones - ponderator)
+        #return final, select, ponderator, RGB
+        return RGB, select, out_depth
 
 
 class ResnetBlock(nn.Module):
@@ -790,11 +851,39 @@ class UnetGenerator(nn.Module):
         unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
-        self.tanh = nn.Tanh()
     def forward(self, input):
         """Standard forward"""
-        out = self.model(input)
-        return torch.cat([self.tanh(out[:,:3,:,:]), out[:,3:,:,:]],1)
+        return self.model(input)
+
+class UnetGeneratorModified(nn.Module):
+    """Create a Unet-based generator"""
+
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
+        """Construct a Unet generator
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            output_nc (int) -- the number of channels in output images
+            num_downs (int) -- the number of downsamplings in UNet. For example, # if |num_downs| == 7,
+                                image of size 128x128 will become of size 1x1 # at the bottleneck
+            ngf (int)       -- the number of filters in the last conv layer
+            norm_layer      -- normalization layer
+
+        We construct the U-Net from the innermost layer to the outermost layer.
+        It is a recursive process.
+        """
+        super(UnetGeneratorModified, self).__init__()
+        # construct unet structure
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
+        for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
+        # gradually reduce the number of filters from ngf * 8 to ngf
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
+    def forward(self, input):
+        """Standard forward"""
+        return torch.clamp(self.model(input) + input[:,:3,:,:],-1,1)
 
 
 class UnetSkipConnectionBlock(nn.Module):
@@ -837,7 +926,7 @@ class UnetSkipConnectionBlock(nn.Module):
                                         kernel_size=4, stride=2,
                                         padding=1)
             down = [downconv]
-            up = [uprelu, upconv]
+            up = [uprelu, upconv, nn.Tanh()]
             model = down + [submodule] + up
         elif innermost:
             upconv = nn.ConvTranspose2d(inner_nc, outer_nc,
@@ -866,7 +955,7 @@ class UnetSkipConnectionBlock(nn.Module):
         else:   # add skip connections
             return torch.cat([x, self.model(x)], 1)
 
-class NLayerDiscriminator(nn.Module):
+class NLayerDiscriminatorOr(nn.Module):
     """Defines a PatchGAN discriminator"""
 
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, alternate=0, with_statistics=True, pyramid = False):
@@ -882,7 +971,6 @@ class NLayerDiscriminator(nn.Module):
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
-
         kw = 4
         padw = 1
         sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
@@ -896,6 +984,13 @@ class NLayerDiscriminator(nn.Module):
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True)
             ]
+            for l in range(0, alternate):
+                print("----------------------------alternate-----------------------------",l+1)
+                sequence += [
+                    nn.Conv2d(ndf * nf_mult, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
+                    norm_layer(ndf * nf_mult),
+                    nn.LeakyReLU(0.2, True)
+                ]
 
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
@@ -912,7 +1007,7 @@ class NLayerDiscriminator(nn.Module):
         """Standard forward."""
         return self.model(input)
 
-class NLayerDiscriminator3(nn.Module):
+class NLayerDiscriminator(nn.Module):
     """Defines a PatchGAN discriminator"""
 
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, alternate=0, with_statistics=True, pyramid = False):
@@ -1196,6 +1291,160 @@ class VGG19(nn.Module):
         #out37=self.max5(out36)
 
         return  out4, out7, out12, out12#, out27#, out36                   #Add appropriate outputs
+
+
+
+
+
+
+
+
+
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(
+        nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
+        nn.BatchNorm2d(oup),
+        nn.ReLU6(inplace=True)
+    )
+
+
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(
+        nn.Conv2d(inp, oup, 1, 1, 0, bias=False),
+        nn.BatchNorm2d(oup),
+        nn.ReLU6(inplace=True)
+    )
+
+
+def make_divisible(x, divisible_by=8):
+    import numpy as np
+    return int(np.ceil(x * 1. / divisible_by) * divisible_by)
+
+
+class InvertedResidual(nn.Module):
+    def __init__(self, inp, oup, stride, expand_ratio):
+        super(InvertedResidual, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+
+        hidden_dim = int(inp * expand_ratio)
+        self.use_res_connect = self.stride == 1 and inp == oup
+
+        if expand_ratio == 1:
+            self.conv = nn.Sequential(
+                # dw
+                nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False),
+                nn.BatchNorm2d(hidden_dim),
+                nn.ReLU6(inplace=True),
+                # pw-linear
+                nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
+                nn.BatchNorm2d(oup),
+            )
+        else:
+            self.conv = nn.Sequential(
+                # pw
+                nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False),
+                nn.BatchNorm2d(hidden_dim),
+                nn.ReLU6(inplace=True),
+                # dw
+                nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False),
+                nn.BatchNorm2d(hidden_dim),
+                nn.ReLU6(inplace=True),
+                # pw-linear
+                nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False),
+                nn.BatchNorm2d(oup),
+            )
+
+    def forward(self, x):
+        if self.use_res_connect:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
+
+
+class MobileNetV2(nn.Module):
+    def __init__(self, n_class=1000, input_size=224, width_mult=1.):
+        super(MobileNetV2, self).__init__()
+        block = InvertedResidual
+        self.reshape = torch.nn.Upsample(size=(int)(128), mode='bilinear')
+        input_channel = 32
+        last_channel = 1280
+        interverted_residual_setting = [
+            # t, c, n, s
+            [1, 16, 1, 1],
+            [6, 24, 2, 2],
+            [6, 32, 3, 2],
+            [6, 64, 4, 2],
+            [6, 96, 3, 1],
+            [6, 160, 3, 2],
+            [6, 320, 1, 1],
+        ]
+
+        # building first layer
+        assert input_size % 32 == 0
+        # input_channel = make_divisible(input_channel * width_mult)  # first channel is always 32!
+        self.last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
+        self.features = [conv_bn(3, input_channel, 2)]
+        # building inverted residual blocks
+        for t, c, n, s in interverted_residual_setting:
+            output_channel = make_divisible(c * width_mult) if t > 1 else c
+            for i in range(n):
+                if i == 0:
+                    self.features.append(block(input_channel, output_channel, s, expand_ratio=t))
+                else:
+                    self.features.append(block(input_channel, output_channel, 1, expand_ratio=t))
+                input_channel = output_channel
+        # building last several layers
+        self.features.append(conv_1x1_bn(input_channel, self.last_channel))
+        # make it nn.Sequential
+        self.features = nn.Sequential(*self.features)
+
+        # building classifier
+        self.classifier = nn.Linear(self.last_channel, n_class)
+
+        self._initialize_weights()
+
+    def forward(self, x):
+        x = self.features(x)
+        print("first",x.shape)
+        x = self.reshape(x.view(22,1280,16*16).unsqueeze(0))
+        
+        print("second",x.shape)
+        #x = x.mean(3).mean(2)
+        
+        #x = self.classifier(x)
+        return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                n = m.weight.size(1)
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
+
+
+def define_FM(pretrained=True):
+    model = MobileNetV2()
+
+    if pretrained:
+        try:
+            from torch.hub import load_state_dict_from_url
+        except ImportError:
+            from torch.utils.model_zoo import load_url as load_state_dict_from_url
+        state_dict = load_state_dict_from_url(
+            'https://www.dropbox.com/s/47tyzpofuuyyv1b/mobilenetv2_1.0-f2a8633.pth.tar?dl=1', progress=True)
+        model.load_state_dict(state_dict)
+    return model
+
+
 
 
 
