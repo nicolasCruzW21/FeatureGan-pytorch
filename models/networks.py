@@ -817,7 +817,7 @@ class UnetSkipConnectionBlock(nn.Module):
         else:   # add skip connections
             return torch.cat([x, self.model(x)], 1)
 
-class NLayerDiscriminatorOr(nn.Module):
+class NLayerDiscriminator(nn.Module):
     """Defines a PatchGAN discriminator"""
 
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, alternate=0, with_statistics=True, pyramid = False):
@@ -869,7 +869,7 @@ class NLayerDiscriminatorOr(nn.Module):
         """Standard forward."""
         return self.model(input)
 
-class NLayerDiscriminator(nn.Module):
+class NLayerDiscriminatorV2(nn.Module):
     """Defines a PatchGAN discriminator"""
 
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, alternate=0, with_statistics=True, pyramid = False):

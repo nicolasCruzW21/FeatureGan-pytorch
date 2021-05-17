@@ -95,17 +95,17 @@ class FeatureGANModel(BaseModel):
 
         if self.isTrain:  # define discriminators
 
-            #self.netD_B_M = networks.define_D(448, 64, "n_layers", 
-                                            #3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 0, False, False)
+            self.netD_B_M = networks.define_D(3, 64, "n_layers", 
+                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 1, False, False)
 
-            self.netD_B_M = DPTDiscModel(
-            path=None,
-            backbone="vitb16_384",
-            non_negative=False,
-            enable_attention_hooks=False,
-            )
+            #self.netD_B_M = DPTDiscModel(
+            #path=None,
+            #backbone="vitb16_384",
+            #non_negative=False,
+            #enable_attention_hooks=False,
+            #)
         
-            self.netD_B_M.to(device)
+            #self.netD_B_M.to(device)
 
 
 
@@ -136,7 +136,7 @@ class FeatureGANModel(BaseModel):
             self.upsample_L_seg = torch.nn.Upsample(size=opt.crop_size, mode='nearest')
 
             self.upsample_M = torch.nn.Upsample(size=(int)(512), mode='nearest')
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_B_M.parameters()), lr=opt.lr*0.1)
+            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_B_M.parameters()), lr=opt.lr*1)
 
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_B.parameters()), lr=opt.lr*1)
 
@@ -212,20 +212,24 @@ class FeatureGANModel(BaseModel):
 
 
     def backward_D_basic(self, real, fake, real_mask, fake_mask):
+        #print(real.shape)
+        #sample, shape = self.processDPTSample(real)
+        #prediction = self.netD_B_M.forward(sample).squeeze(0)
+        #pred_real = self.processDPTOutput(prediction.unsqueeze(0), shape)
+        self.pred_real = self.upsample_M(self.netD_B_M(real))
+        #print(self.pred_real.shape)
+        #self.pred_real = pred_real.unsqueeze(0)
+        
+        self.loss_D_real = self.criterionGAN(self.pred_real, True, real_mask)
 
-        sample, shape = self.processDPTSample(real)
-        prediction = self.netD_B_M.forward(sample).squeeze(0)
-        pred_real = self.processDPTOutput(prediction.unsqueeze(0), shape)
-        self.pred_real = pred_real.unsqueeze(0)
-        self.loss_D_real = self.criterionGAN(pred_real, True, real_mask)
 
 
-
-        sample, shape = self.processDPTSample(fake.detach())
-        prediction = self.netD_B_M.forward(sample).squeeze(0)
-        pred_fake = self.processDPTOutput(prediction.unsqueeze(0), shape)
-        self.pred_fake = pred_fake.unsqueeze(0)
-        self.loss_D_fake = self.criterionGAN(pred_fake, False, fake_mask)
+        #sample, shape = self.processDPTSample(fake.detach())
+        #prediction = self.netD_B_M.forward(sample).squeeze(0)
+        #pred_fake = self.processDPTOutput(prediction.unsqueeze(0), shape)
+        #self.pred_fake = pred_fake.unsqueeze(0)
+        self.pred_fake = self.upsample_M(self.netD_B_M(fake))
+        self.loss_D_fake = self.criterionGAN(self.pred_fake, False, fake_mask)
         
         loss_D = (self.loss_D_real + self.loss_D_fake) * 0.5
         #print(loss_D)
@@ -298,10 +302,12 @@ class FeatureGANModel(BaseModel):
 
         #self.b, squeeze =self.netD_B_M(concat_fake_A_M) 
 
-        sample, shape = self.processDPTSample(self.fake_A * self.real_B_mask)
-        prediction = self.netD_B_M.forward(sample).squeeze(0)
-        self.b = self.processDPTOutput(prediction.unsqueeze(0), shape)
-        self.b = self.b.unsqueeze(0)
+        #sample, shape = self.processDPTSample(self.fake_A * self.real_B_mask)
+        #prediction = self.netD_B_M.forward(sample).squeeze(0)
+        #self.b = self.processDPTOutput(prediction.unsqueeze(0), shape)
+        self.b = self.upsample_M(self.netD_B_M.forward(self.fake_A * self.real_B_mask))
+        #print(self.b.shape)
+        #self.b = self.b.unsqueeze(0)
         self.loss_G_B = self.criterionGAN(self.b, True, self.real_B_mask)
 
         self.loss_idt_B = 0
