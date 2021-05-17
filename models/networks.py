@@ -172,6 +172,8 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         net = UnetGeneratorModified(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif netG == 'cascade':
         net = cascaded_model(input_nc, output_nc , 256, ngf)
+    elif netG == 'tensor':
+        net = TensorModelGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -197,12 +199,12 @@ def define_F(gpu_ids=[]):
 
     #Weight initialization according to the pretrained VGG Very deep 19 network Network weights
 
-    layers=[0, 2, 5, 7, 10, 12, 14, 16, 19, 21, 23, 25, 28, 30, 32, 34]
+    layers=[0, 2, 5, 7, 10, 12, 14]
 
-    att=['conv1', 'conv2', 'conv3', 'conv4', 'conv5', 'conv6', 'conv7', 'conv8', 'conv9', 'conv10', 'conv11', 'conv12', 'conv13', 'conv14', 'conv15', 'conv16']
+    att=['conv1', 'conv2', 'conv3', 'conv4', 'conv5']
 
     S=[64, 64, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512, 512, 512, 512, 512]
-    for L in range(16):
+    for L in range(5):
         getattr(Net, att[L]).weight=nn.Parameter(torch.from_numpy(vgg_layers[layers[L]][0][0][2][0][0]).permute(3,2,0,1).cuda())
         getattr(Net, att[L]).bias=nn.Parameter(torch.from_numpy(vgg_layers[layers[L]][0][0][2][0][1]).view(S[L]).cuda())
     return Net.eval()
@@ -300,8 +302,8 @@ class FeatureLoss(nn.Module):
         E2=self.compute_error(self.lay1(out14_r.unsqueeze(0)), self.lay1(out14_f.unsqueeze(0)))
         E3=self.compute_error(self.lay2(out23_r.unsqueeze(0)), self.lay2(out23_f.unsqueeze(0)))
         
-        Total_loss= max(E1*self.coef1 + E2*self.coef2 + E3*self.coef3,0)
-        return Total_loss, E1*self.coef1, E2*self.coef2, E3*self.coef3
+        Total_loss= max((E1*self.coef1 + E2*self.coef2 + E3*self.coef3)/(self.coef1+self.coef2+self.coef3),0)
+        return Total_loss
 
 
 
@@ -417,100 +419,14 @@ def cal_gradient_penalty(netD, real_data, fake_data, device, type='mixed', const
     else:
         return 0.0, None
 
-class ResnetCascadeGenerator(nn.Module):
+
+class TensorModelGenerator(nn.Module):
     """Resnet-based generator that consists of Resnet blocks between a few downsampling/upsampling operations.
-
-    We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
-    """
-
-    def __init__(self, input_nc, output_nc, ngf=68, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
-        """Construct a Resnet-based generator
-
-        Parameters:
-            input_nc (int)      -- the number of channels in input images
-            output_nc (int)     -- the number of channels in output images
-            ngf (int)           -- the number of filters in the last conv layer
-            norm_layer          -- normalization layer
-            use_dropout (bool)  -- if use dropout layers
-            n_blocks (int)      -- the number of ResNet blocks
-            padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
-        """
-        assert(n_blocks >= 0)
-        super(ResnetCascadeGenerator, self).__init__()
-        if type(norm_layer) == functools.partial:
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-
-        feature_size=input_nc
-
-        model_encoder = [nn.ReflectionPad2d(3),
-                 nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias),
-                 norm_layer(ngf), nn.ReLU(True)]
-
-        n_downsampling = 2
-        for i in range(n_downsampling):  # add downsampling layers
-            mult = 2 ** i
-            model_encoder += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
-                      norm_layer(ngf), nn.ReLU(True)]
-
-        self.model_encoder = nn.Sequential(*model_encoder)
-
-
-        mult = 2 ** n_downsampling
-        model_resnet=[norm_layer(ngf * mult + feature_size)]
-        for i in range(n_blocks):       # add ResNet blocks
-
-            model_resnet += [ResnetBlock(ngf * mult + feature_size, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-
-        self.model_resnet = nn.Sequential(*model_resnet)
-
-
-
-
-        mult = 2 ** (n_downsampling)
-        model_decoder = [nn.ConvTranspose2d(ngf * mult+feature_size, int(ngf * mult / 2),
-                                     kernel_size=3, stride=2,
-                                     padding=1, output_padding=1,
-                                     bias=use_bias),
-                  norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
-
-        for i in range(1,n_downsampling):  # add upsampling layers
-            mult = 2 ** (n_downsampling - i)
-            model_decoder += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                                         kernel_size=3, stride=2,
-                                         padding=1, output_padding=1,
-                                         bias=use_bias),
-                      norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
-
-        model_decoder += [nn.ReflectionPad2d(3)]
-        model_decoder += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        #model_decoder += [nn.Tanh()]
-        self.tanh=nn.Tanh()
-
-        self.model_decoder = nn.Sequential(*model_decoder)
-
-    def forward(self, input):
-        """Standard forward"""
-        #features=self.upsample(input[:,3:,:,:])
-        encoded = self.model_encoder(input)
-        #print(encoded.size())
-        upsample = torch.nn.Upsample(size=encoded.size()[2], mode='nearest').cuda()
-        encoded_concat= torch.cat([encoded, upsample(input[:,:,:,:])],1)
-        output = self.model_decoder(self.model_resnet(encoded_concat))
-  
-
-        return torch.cat([self.tanh(output[:,:3,:,:]),output[:,3:,:,:]],1)
-
-class ResnetPyramidGenerator(nn.Module):
-    """Resnet-based generator that consists of Resnet blocks between a few downsampling/upsampling operations.
-
     We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
     """
 
     def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
         """Construct a Resnet-based generator
-
         Parameters:
             input_nc (int)      -- the number of channels in input images
             output_nc (int)     -- the number of channels in output images
@@ -521,145 +437,62 @@ class ResnetPyramidGenerator(nn.Module):
             padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
         """
         assert(n_blocks >= 0)
-        super(ResnetPyramidGenerator, self).__init__()
+        super(TensorModelGenerator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
 
-        self.input = torch.zeros([1,ngf-input_nc, 256, 256]).float().cuda()
+        model = [nn.ReflectionPad2d(3),
+                 nn.Conv2d(3+6, ngf, kernel_size=7, padding=0, bias=use_bias),
+                 norm_layer(ngf),
+                 nn.ReLU(True)]
 
-        model_preprocess = [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        model_preprocess += [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-
-        model_direct = []
-        for i in range(4):       # add ResNet blocks
-            model_direct += [ResnetBlock((int)(ngf), padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-
-
-       
-        n_downsampling = 3
-        #for i in range(n_downsampling):  # add downsampling layers
-        mult = 2 ** 0
-        model_pyramid_0 = [PyramidBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        self.model_pyramid_0 = nn.Sequential(*model_pyramid_0)
-        mult = 2 ** 1
-        model_pyramid_1 = [PyramidBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        self.model_pyramid_1 = nn.Sequential(*model_pyramid_1)
-        mult = 2 ** 2
-        model_pyramid_2 = [PyramidBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        self.model_pyramid_2 = nn.Sequential(*model_pyramid_2)
+        n_downsampling = 2
+        for i in range(n_downsampling):  # add downsampling layers
+            mult = 2 ** i
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
+                      norm_layer(ngf * mult * 2),
+                      nn.ReLU(True)]
 
 
 
+        mult = 2 ** n_downsampling
+        for i in range(n_blocks):       # add ResNet blocks
 
-        mult = 2 ** (n_downsampling - 0)
-        model_pyramid_2_up = [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                                     kernel_size=3, stride=2,
-                                     padding=1, output_padding=1,
-                                     bias=use_bias),
-                  norm_layer(int(ngf * mult / 2)),
-                  nn.ReLU(True)]
-        self.model_pyramid_2_up = nn.Sequential(*model_pyramid_2_up)
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
 
-        mult = 2 ** (n_downsampling - 1)
-        model_pyramid_1_up = [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                                     kernel_size=3, stride=2,
-                                     padding=1, output_padding=1,
-                                     bias=use_bias),
-                  norm_layer(int(ngf * mult / 2)),
-                  nn.ReLU(True)]
-        self.model_pyramid_1_up = nn.Sequential(*model_pyramid_1_up)
+        for i in range(n_downsampling):  # add upsampling layers
+            mult = 2 ** (n_downsampling - i)
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
+                                         kernel_size=3, stride=2,
+                                         padding=1, output_padding=1,
+                                         bias=use_bias),
+                      norm_layer(int(ngf * mult / 2)),
+                      nn.ReLU(True)]
+        model += [nn.ReflectionPad2d(3)]
+        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
+        model += [nn.Tanh()]
 
-        mult = 2 ** (n_downsampling - 2)
-        model_pyramid_0_up = [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2),
-                                     kernel_size=3, stride=2,
-                                     padding=1, output_padding=1,
-                                     bias=use_bias),
-                  norm_layer(int(ngf * mult / 2)),
-                  nn.ReLU(True)]
-        self.model_pyramid_0_up = nn.Sequential(*model_pyramid_0_up)
-
-        #end_model = []
-        #for i in range(2):       # add ResNet blocks
-            #end_model += [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-
-        #end_model += [nn.ReflectionPad2d(0)]
-        #end_model += [norm_layer(ngf),nn.ReLU(True)]
-        #end_model += [nn.Conv2d(ngf, ngf, kernel_size=1, padding=0)]
-        out_model = []
-        for i in range(4):       # add ResNet blocks
-            out_model += [ResnetBlock(ngf, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-
-        self.tanh = nn.Tanh()
-        self.model_preprocess = nn.Sequential(*model_preprocess)
-        self.model_direct = nn.Sequential(*model_direct)
-        self.end_model = nn.Sequential(*end_model)
-        self.out_model = nn.Sequential(*out_model)
+        self.model = nn.Sequential(*model)
+        squeeze = [torch.nn.InstanceNorm2d(input_nc)]
+        squeeze+=[nn.Conv2d(input_nc-3, 6, kernel_size=7, stride=1, padding=1), nn.ReLU(inplace=True),torch.nn.InstanceNorm2d(6),nn.ReflectionPad2d(2)]
+        #squeeze += [nn.Conv2d(input_nc, 128, kernel_size=5, stride=1, padding=2)]
+        #squeeze+= [nn.LeakyReLU(0.2, True)]
+        #squeeze+=[torch.nn.InstanceNorm2d(128).cuda()]
+        self.squeeze = nn.Sequential(*squeeze)
 
     def forward(self, input):
-        """Standard forward"""
+        #print("input", input.shape)
+        input_no_RGB = input[:,3:,:]
+        #print("input_no_RGB",input_no_RGB.size())
+        squeezed = self.squeeze(input_no_RGB)
+        #print("squeezed",squeezed.shape)
+        newInput = torch.cat([input[:,:3,:], squeezed], 1)
+        #print("newInput", newInput.shape)
 
-        input2 = torch.cat([self.input,input],1)
+        return self.model(newInput), squeezed
 
-        preprocess = self.model_preprocess(input2)
-
-
-        direct = self.model_direct(preprocess)
-        pyramid_0 = self.model_pyramid_0(preprocess)
-        pyramid_1 = self.model_pyramid_1(pyramid_0)
-        pyramid_2 = self.model_pyramid_2(pyramid_1)
-
-        pyramid_2_up = self.model_pyramid_2_up(pyramid_2) + pyramid_1
-        pyramid_1_up = self.model_pyramid_1_up(pyramid_2_up) + pyramid_0
-
-
-
-        output = self.model_pyramid_0_up(pyramid_1_up) + direct
-
-
-        return torch.cat([self.tanh(self.out_model(output)[:,:3,:,:]), output[:,3:32,:,:]],1)
-
-class PyramidBlock(nn.Module):
-    """Define a Resnet block"""
-
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        """Initialize the Resnet block
-
-        A resnet block is a conv block with skip connections
-        We construct a conv block with build_conv_block function,
-        and implement skip connections in <forward> function.
-        Original Resnet paper: https://arxiv.org/pdf/1512.03385.pdf
-        """
-        super(PyramidBlock, self).__init__()
-        self.pyramid_block = self.build_pyramid_block(dim, padding_type, norm_layer, use_dropout, use_bias)
-
-    def build_pyramid_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        """Construct a convolutional block.
-
-        Parameters:
-            dim (int)           -- the number of channels in the conv layer.
-            padding_type (str)  -- the name of padding layer: reflect | replicate | zero
-            norm_layer          -- normalization layer
-            use_dropout (bool)  -- if use dropout layers.
-            use_bias (bool)     -- if the conv layer uses bias or not
-
-        Returns a conv block (with a conv layer, a normalization layer, and a non-linearity layer (ReLU))
-        """
-        
-        pyramid_block = [nn.Conv2d(dim, dim * 2, kernel_size=3, stride=2, padding=1, bias=use_bias),
-                  norm_layer(dim * 2),
-                  nn.LeakyReLU(True)]
-        pyramid_block += [ResnetBlock(dim * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        pyramid_block += [ResnetBlock(dim * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        pyramid_block += [ResnetBlock(dim * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        pyramid_block += [ResnetBlock(dim * 2, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        return nn.Sequential(*pyramid_block)
-
-    def forward(self, x):
-        """Forward function (with skip connections)"""
-        out = self.pyramid_block(x)  # add skip connections
-        return out
 
 
 class ResnetGenerator(nn.Module):
@@ -843,6 +676,7 @@ class UnetGenerator(nn.Module):
         """
         super(UnetGenerator, self).__init__()
         # construct unet structure
+        use_bias = norm_layer.func == nn.InstanceNorm2d
         unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
         for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
             unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
@@ -851,9 +685,36 @@ class UnetGenerator(nn.Module):
         unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
+
+
+        depth_out = int(3)
+
+        modelDepth = [nn.ReflectionPad2d(5),
+                 nn.Conv2d(1, int(ngf/2), kernel_size=7, padding=0, bias=use_bias),
+                 norm_layer(int(ngf/2)),
+                 nn.ReLU(True)]
+
+        modelDepth += [nn.Conv2d(int(ngf/2), int(ngf/2), kernel_size=3, padding=0, bias=use_bias),
+                 norm_layer(int(ngf/2)),
+                 nn.ReLU(True)]
+
+        modelDepth += [nn.Conv2d(int(ngf/2), depth_out, kernel_size=3, padding=0, bias=use_bias),
+                 norm_layer(depth_out),
+                 nn.ReLU(True)]
+
+        modelDepth = self.depth = nn.Sequential(*modelDepth)
+
+
+
     def forward(self, input):
         """Standard forward"""
-        return self.model(input)
+
+        depth=input[:,3,:,:].unsqueeze(0)
+        out_depth = self.depth(depth)
+        input_concat = torch.cat([input[:,0:3,:,:], out_depth],1)
+
+
+        return self.model(input_concat), out_depth
 
 class UnetGeneratorModified(nn.Module):
     """Create a Unet-based generator"""
@@ -872,6 +733,7 @@ class UnetGeneratorModified(nn.Module):
         It is a recursive process.
         """
         super(UnetGeneratorModified, self).__init__()
+        
         # construct unet structure
         unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
         for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
@@ -883,7 +745,7 @@ class UnetGeneratorModified(nn.Module):
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
     def forward(self, input):
         """Standard forward"""
-        return torch.clamp(self.model(input) + input[:,:3,:,:],-1,1)
+        return self.model(input)
 
 
 class UnetSkipConnectionBlock(nn.Module):
@@ -1061,7 +923,7 @@ class NLayerDiscriminator(nn.Module):
         if(not with_statistics):
             squeeze = [torch.nn.InstanceNorm2d(input_nc)]
             print("---------------------------without stats-----------------------------")
-        squeeze+=[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.ReLU(inplace=True),torch.nn.InstanceNorm2d(ndf)]
+        squeeze+=[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True), torch.nn.InstanceNorm2d(ndf)]
         #squeeze += [nn.Conv2d(input_nc, 128, kernel_size=5, stride=1, padding=2)]
         #squeeze+= [nn.LeakyReLU(0.2, True)]
         #squeeze+=[torch.nn.InstanceNorm2d(128).cuda()]
@@ -1157,22 +1019,20 @@ class VGG19(nn.Module):
 
     def __init__(self):
         super(VGG19, self).__init__()
-        self.lay0 = torch.nn.InstanceNorm2d(3, affine=True)
         self.conv1=nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=True)
-        self.relu1=nn.ReLU(inplace=True)
+        self.relu1=nn.LeakyReLU(0.01, True)#nn.ReLU(inplace=True)
             
         self.conv2=nn.Conv2d(64,64, kernel_size=3, stride=1, padding=1, bias=True)
-        self.relu2=nn.ReLU(inplace=True)
+        self.relu2=nn.LeakyReLU(0.01, True)#nn.ReLU(inplace=True)
         self.max1=nn.AvgPool2d(kernel_size=2, stride=2)
         #128
 
             
         self.conv3=nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=True)
-        self.lay3 = torch.nn.InstanceNorm2d(128, affine=True)
-        self.relu3=nn.ReLU(inplace=True)
+        self.relu3=nn.LeakyReLU(0.01, True)#nn.ReLU(inplace=True)
             
         self.conv4=nn.Conv2d(128, 128,  kernel_size=3, padding=1, bias=True)
-        self.relu4=nn.ReLU(inplace=True)
+        self.relu4=nn.LeakyReLU(0.01, True)#nn.ReLU(inplace=True)
         self.max2=nn.AvgPool2d(kernel_size=2, stride=2)
 #64
 
@@ -1180,62 +1040,14 @@ class VGG19(nn.Module):
 
             
         self.conv5=nn.Conv2d(128, 256,  kernel_size=3, padding=1, bias=True)
-        self.lay5 = torch.nn.InstanceNorm2d(256, affine=True)
-        self.relu5=nn.ReLU(inplace=True)
+        #self.relu5=nn.ReLU(inplace=True)
             
-        self.conv6=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
-        self.lay6 = torch.nn.InstanceNorm2d(256, affine=True)
-        self.relu6=nn.ReLU(inplace=True)
+        #self.conv6=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
+        #self.relu6=nn.ReLU(inplace=True)
             
-        self.conv7=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
-        self.lay7 = torch.nn.InstanceNorm2d(256, affine=True)
-        self.relu7=nn.ReLU(inplace=True)
-            
-        self.conv8=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
-        self.lay8 = torch.nn.InstanceNorm2d(256, affine=True)
-        self.relu8=nn.ReLU(inplace=True)
-        self.max3=nn.AvgPool2d(kernel_size=2, stride=2)
-#32
+        #self.conv7=nn.Conv2d(256, 256,  kernel_size=3, padding=1, bias=True)
+        #self.relu7=nn.ReLU(inplace=True)
 
-
-
-            
-        self.conv9=nn.Conv2d(256, 512,  kernel_size=3, padding=1, bias=True)
-        self.lay9 = torch.nn.InstanceNorm2d(512, affine=True)
-        self.relu9=nn.ReLU(inplace=True)
-            
-        self.conv10=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
-        self.lay10 = torch.nn.InstanceNorm2d(512, affine=True)
-        self.relu10=nn.ReLU(inplace=True)
-            
-        self.conv11=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
-        self.lay11 = torch.nn.InstanceNorm2d(512, affine=True)
-        self.relu11=nn.ReLU(inplace=True)
-            
-        self.conv12=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
-        self.lay12 = torch.nn.InstanceNorm2d(512, affine=True)
-        self.relu12=nn.ReLU(inplace=True)
-        self.max4=nn.AvgPool2d(kernel_size=3, stride=2)#16
-
-
-
-            
-        self.conv13=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
-        self.lay13 = torch.nn.InstanceNorm2d(512, affine=True)
-        self.relu13=nn.ReLU(inplace=True)
-            
-        self.conv14=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
-        self.lay14 = torch.nn.InstanceNorm2d(512, affine=True)
-        self.relu14=nn.ReLU(inplace=True)
-            
-        self.conv15=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
-        self.lay15 = torch.nn.InstanceNorm2d(512, affine=True)
-        self.relu15=nn.ReLU(inplace=True)
-            
-        self.conv16=nn.Conv2d(512, 512,  kernel_size=3, padding=1, bias=True)
-        self.lay16 = torch.nn.InstanceNorm2d(512, affine=True)
-        self.relu16=nn.ReLU(inplace=True)
-        self.max5=nn.AvgPool2d(kernel_size=3, stride=2)#8
 
     def forward(self, x):
         
@@ -1255,42 +1067,10 @@ class VGG19(nn.Module):
 
          
         out11=self.conv5(out10)
-        out12=self.relu5(out11)  
-        #out13=self.conv6(out12)
-        #out14=self.relu6(out13)           
-        #out15=self.conv7(out14)
-        #out16=self.relu7(out15)
-        #out17=self.conv8(out16)
-        #out18=self.relu8(out17)
-        #out19=self.max3(out18)    
-       
-        #out20=self.conv9(out19)
-        #out21=self.relu9(out20)
-            
-        #out22=self.conv10(out21)
-        #out23=self.relu10(out22)
-            
-        #out24=self.conv11(out23)
-        #out25=self.relu11(out24)         
-        #out26=self.conv12(out25)
-        #out27=self.relu12(out26)
+        #out12=self.relu5(out11)  
 
-        #out28=self.max4(out27)           
-        #out29=self.conv13(out28)
-        #out30=self.relu13(out29)
-          
-        #out31=self.conv14(out30)
-        #out32=self.relu14(out31)
-            
-        #out33=self.conv15(out32)
-        #out34=self.relu15(out33)
-            
-        #out35=self.conv16(out34)
-        #out36=self.relu16(out35)
 
-        #out37=self.max5(out36)
-
-        return  out4, out7, out12, out12#, out27#, out36                   #Add appropriate outputs
+        return  out3, out6, out11
 
 
 

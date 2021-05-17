@@ -3,7 +3,9 @@ import torchvision
 import itertools
 from util.image_pool import ImagePool
 from .base_model import BaseModel
+from .models import DPTGenModel, DPTDiscModel
 from . import networks
+from torchvision.transforms import Compose
 import torchvision.transforms as transforms
 from util import util
 from PIL import Image
@@ -15,7 +17,8 @@ import torch.nn as nn
 import random
 import math  
 from color_transfer import color_transfer
-
+import cv2
+from .transforms import Resize, NormalizeImage, PrepareForNet
 #TODO: cambiar la textura del piso del field
 class FeatureGANModel(BaseModel):
 
@@ -35,11 +38,8 @@ class FeatureGANModel(BaseModel):
         
 
         if self.isTrain:
-            visual_names_B = ['real_A', 'real_A_D_S', 'fake_A_D_S', 'squeeze_real', 'squeeze_fake','real_B', 'fake_A','real_B_depth', 'out_depth', 'model0', 'model1'] #,'real_B', 'real_A_mask','real_B_mask', 'real_A_depth','real_B_depth', 'real_A_blured','real_B_blured'
-            self.loss_names = ['G', 'G_B', 'F_B', 'F_B_B', 'F_B_F', 'D_B_M']
-
-            #visual_names_B = ['real_A','real_B','seg_cars_target','seg_cars', 'fake_A', 'fake_A_D','lines_real_B', 'lines_fake_A', 'robots_real_B', 'robots_fake_A', 'field_real_B', 'field_fake_A', 'shirt_real_B', 'shirt_fake_A','squeeze_real_M1','squeeze_fake_M1']
-            #self.loss_names = ['D_B_G', 'D_B_M', 'G_B','G_B_M', 'G_B_G', 'F_B', 'F_B_robots', 'F_B_field', 'F_B_shirt', 'F_B_lines', 'G', 'idt_B']
+            visual_names_B = ['real_A_D_S', 'pred_real', 'fake_A_D_S', 'pred_fake', 'real_B', 'fake_A', 'b']
+            self.loss_names = ['G', 'G_B', 'F_B_B', 'F_B_F', 'F_B', 'D_B_M', 'D_fake', 'D_real']
         else:
             visual_names_B = ['real_B', 'fake_A']
             self.loss_names = ['idt_B']
@@ -52,40 +52,70 @@ class FeatureGANModel(BaseModel):
         else:  
             self.model_names = ['G_B']
 
-        self.netG_B = networks.define_G(4, 3, 64, opt.netG, opt.norm,
-                                        not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
+        self.netF = networks.define_F(self.gpu_ids)
+        self.netF=self.netF.eval()
+        #self.netF = self.netF.half()
+        self.set_requires_grad([self.netF], False)
+
+
+        net_w = net_h = 384
+        self.netG_B = DPTGenModel(
+            path=None,
+            backbone="vitb16_384",
+            non_negative=False,
+            enable_attention_hooks=False,
+        )
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.netG_B.to(device)
+
+
+        normalization = NormalizeImage(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+
+        self.transform = Compose(
+            [
+                Resize(
+                    net_w,
+                    net_h,
+                    resize_target=None,
+                    keep_aspect_ratio=True,
+                    ensure_multiple_of=32,
+                    resize_method="minimal",
+                    image_interpolation_method=cv2.INTER_CUBIC,
+                ),
+                normalization,
+                PrepareForNet(),
+            ]
+        )
+
+
+        #self.netG_B = networks.define_G(6, 3, 64, opt.netG, opt.norm,
+                                        #not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
 
 
         if self.isTrain:  # define discriminators
 
-            self.netD_B_M = networks.define_D(448, 64, "n_layers", 
-                                            3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 1, False, False)
+            #self.netD_B_M = networks.define_D(448, 64, "n_layers", 
+                                            #3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 0, False, False)
 
-            #self.netD_B_G= networks.define_D(320, 32, "n_layers", 
-                                            #3, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids, 0, False, True)
+            self.netD_B_M = DPTDiscModel(
+            path=None,
+            backbone="vitb16_384",
+            non_negative=False,
+            enable_attention_hooks=False,
+            )
+        
+            self.netD_B_M.to(device)
 
-            self.netF = networks.define_F(self.gpu_ids)
-            #self.netF=self.netF.eval()
-            self.set_requires_grad([self.netF], False)
 
-
-            self.netM = networks.define_FM().to(self.device)
-            self.netM.eval()
-            self.set_requires_grad([self.netM], False)
 
 
         else:
             self.netG_B=self.netG_B.eval()
             self.set_requires_grad([self.netG_B], False)
             self.loss_idt_B = 0
-
-		
- 
-        self.lay0 = torch.nn.InstanceNorm2d(3, affine=False).cuda()
         self.lay1 = torch.nn.LayerNorm([3, opt.crop_size, opt.crop_size], elementwise_affine=False).cuda()
-        self.sig = nn.Sigmoid()
-        self.criterionSeg = torch.nn.BCEWithLogitsLoss()
-        self.upsample_Feature = torch.nn.Upsample(size=256, mode='bilinear').cuda()
+        self.upsample_Feature = torch.nn.Upsample(size=512, mode='bilinear').cuda()
         if self.isTrain:
             if opt.lambda_identity > 0.0:  # only works when input and output images have the same number of channels
                 assert(opt.input_nc == opt.output_nc)
@@ -93,49 +123,28 @@ class FeatureGANModel(BaseModel):
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
+            self.jitter = torchvision.transforms.ColorJitter(brightness=0.1, contrast=0.05, saturation=0.05, hue=0.05)
+            self.factorForground = 0.2
+            self.factorBackground = 5
 
-            factorAll = 0.1
-
-            self.criterionFeatureRobots = networks.FeatureLoss(1*factorAll ,      4*factorAll,      2*factorAll,      "L1").to(self.device)
+            self.criterionFeatureRobots = networks.FeatureLoss(2 ,      4,      4,      "MSE").to(self.device)
 
             self.criterionL1 = torch.nn.L1Loss()
             self.criterionL2 = torch.nn.MSELoss()
-
-            self.normalizer128 = torch.nn.InstanceNorm2d(64)
-            self.normalizer256 = torch.nn.InstanceNorm2d(256)
-            
-
-            self.avg_pool = torch.nn.AvgPool2d(kernel_size=2, stride=1, padding=0)
-
-            self.avg_pool_disc = torch.nn.AvgPool2d(kernel_size=2, stride=2, padding=1)
 
             self.upsample_L = torch.nn.Upsample(size=opt.crop_size, mode='nearest')
             self.upsample_L_seg = torch.nn.Upsample(size=opt.crop_size, mode='nearest')
 
             self.upsample_M = torch.nn.Upsample(size=(int)(512), mode='nearest')
-            self.upsample_G = torch.nn.Upsample(size=(int)(96), mode='nearest')
-            self.upsample_crop = torch.nn.Upsample(size=(int)(opt.crop_size), mode='nearest')
-            disc_size = 30
-            self.downsample_disc = torch.nn.Upsample(size=(int)(disc_size), mode='nearest')
-            self.ones_disc = torch.ones(opt.crop_size, opt.crop_size).cuda()
-            self.jitter = torchvision.transforms.ColorJitter(brightness=0.2, contrast=0.1, saturation=0.05, hue=0.02)
+            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_B_M.parameters()), lr=opt.lr*0.1)
 
-
-            # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
-            #self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_B_M.parameters()), lr=opt.lr*1.5, betas=(opt.beta1, 0.999))
-
-            self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_B.parameters()), lr=opt.lr*1, betas=(opt.beta1, 0.999))
+            self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_B.parameters()), lr=opt.lr*1)
 
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
-            #self.optimizers.append(self.optimizer_M)
             
             self.aa=np.array([123.6800, 116.7790, 103.9390]).reshape((1,1,1,3))
             self.bb=torch.autograd.variable(torch.from_numpy(self.aa).float().permute(0,3,1,2).cuda())
-            self.FeaturesCalculated = False
-            self.features = None
 
 
 
@@ -160,119 +169,97 @@ class FeatureGANModel(BaseModel):
         #self.real_A_blured = input['A' if AtoB else 'B'].to(self.device)
         #self.real_B_blured = input['B' if AtoB else 'A'].to(self.device)
 
-        self.model = input['A_models' if AtoB else 'B_models'].to(self.device)
-        self.model = self.model.squeeze(0)
+        #self.model = input['A_models' if AtoB else 'B_models'].to(self.device)
+        #self.model = self.model.squeeze(0)
 
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
+
+    def processDPTSample(self, sample):
+        numpy_img = util.tensor2im(sample)
+        img_input = self.transform({"image": numpy_img})["image"]
+        return torch.from_numpy(img_input).to(self.device).unsqueeze(0), numpy_img.shape[:2]
+
+    def processDPTOutput(self, prediction, shape):
+        return (
+            torch.nn.functional.interpolate(
+                prediction.unsqueeze(1),
+                size = shape,
+                mode="bicubic",
+                align_corners = False,
+            )
+            .squeeze()
+        ).unsqueeze(0)
+
+
+    def JitterSample(self, sample):
+        PIL_real_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(sample)))
+
+        return util.im2tensor(np.array(PIL_real_A_Jitter))
+
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         if self.isTrain:
-            #out0, out1, out2, out3 = self.calculate_Features(self.upsample_Feature(self.real_B))
-            if(not self.FeaturesCalculated):
-                self.features = self.netM(self.model)
-                self.FeaturesCalculated = True
 
-            
-            
-      
 
-            input_net = torch.cat([self.real_B, self.real_B_depth], 1)
-            self.fake_A, selectedModels, self.out_depth = self.netG_B(input_net, self.features)
-            selectedModels = selectedModels.squeeze(0)
-            selectedModels = selectedModels.squeeze(1)
-            selectedModels = selectedModels.squeeze(1)
-            selectedModels = selectedModels.cpu().detach().numpy()
+            sample, shape = self.processDPTSample(self.real_B)
+            prediction = self.netG_B.forward(sample).squeeze(0)
+            self.fake_A = self.processDPTOutput(prediction, shape)
 
-            #print(selectedModels)
-            ind = np.argpartition(selectedModels, -4)[-4:]
-            #print(ind)
-
-            #index0 = ind[0]
-            #index1 = ind[1]
-
-            #print("index0", index0, "index1", index1, "prob:", prob.cpu().detach().numpy()[0])
-
-            self.model0 = self.model[ind[0], :, :, :].unsqueeze(0)
-            self.model1 = self.model[ind[1], :, :, :].unsqueeze(0)
-            self.model2 = self.model[ind[2], :, :, :].unsqueeze(0)
-            self.model3 = self.model[ind[3], :, :, :].unsqueeze(0)  
 
         else:
             self.fake_A = self.netG_B(self.real_B)
 
 
-    def backward_D_basic(self, netD, real, fake, real_mask, fake_mask):
+    def backward_D_basic(self, real, fake, real_mask, fake_mask):
+
+        sample, shape = self.processDPTSample(real)
+        prediction = self.netD_B_M.forward(sample).squeeze(0)
+        pred_real = self.processDPTOutput(prediction.unsqueeze(0), shape)
+        self.pred_real = pred_real.unsqueeze(0)
+        self.loss_D_real = self.criterionGAN(pred_real, True, real_mask)
 
 
-        real_mask = self.upsample_M(real_mask)
-        pred_real, squeeze_real = netD(real)
-        pred_real = self.upsample_M(pred_real)
-        squeeze_real = self.upsample_M(squeeze_real) * real_mask
-        loss_D_real = self.criterionGAN(pred_real, True, real_mask)
 
-        fake_mask = self.upsample_M(fake_mask.unsqueeze(0))
-        pred_fake, squeeze_fake = netD(fake.detach())
-        pred_fake = self.upsample_M(pred_fake)
-        squeeze_fake = self.upsample_M(squeeze_fake) * fake_mask
-        loss_D_fake = self.criterionGAN(pred_fake, False, fake_mask)
+        sample, shape = self.processDPTSample(fake.detach())
+        prediction = self.netD_B_M.forward(sample).squeeze(0)
+        pred_fake = self.processDPTOutput(prediction.unsqueeze(0), shape)
+        self.pred_fake = pred_fake.unsqueeze(0)
+        self.loss_D_fake = self.criterionGAN(pred_fake, False, fake_mask)
         
-        loss_D = (loss_D_real + loss_D_fake) * 0.5
+        loss_D = (self.loss_D_real + self.loss_D_fake) * 0.5
         #print(loss_D)
-        return loss_D, self.lay1(squeeze_real[:,0:3, :]), self.lay1(squeeze_fake[:,0:3, :])
+        return loss_D#, self.lay1(squeeze_real[:,0:3, :]), self.lay1(squeeze_fake[:,0:3, :])
 
     def backward_D_B(self):
         """Calculate GAN loss for discriminator D_B"""
         
         image_mask = self.fake_A_pool.query(torch.cat([self.fake_A, self.real_B_mask], 1))
-        fake_A = image_mask[:,0:3,:,:]
-        real_B_mask = image_mask[:,3,:,:]
-        PIL_fake_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(fake_A)))
-        np_fake_A = np.array(PIL_fake_A_Jitter)
+        self.fake_A_D = self.JitterSample(image_mask[:,0:3,:,:])
+        real_mask = image_mask[:,3,:,:]
 
-
-        #if(random.random() > 0.5 and self.opt.lambda_identity>0):
-            #PIL_real_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.real_D)))
-        #else:
-        PIL_real_A_Jitter = self.jitter(Image.fromarray(util.tensor2im(self.real_A)))
-        np_real_A = np.array(PIL_real_A_Jitter)
-
-
-        np_real_B = np.array(self.jitter(Image.fromarray(util.tensor2im(self.real_B))))
-        if(random.random() > 2):
-            colorTransfer_real_A = color_transfer(np_real_B, np_real_A, clip=True, preserve_paper=False)
-            #print(colorTransfer_real_A)
-        else:
-            colorTransfer_real_A = np_real_A
-
-        self.real_A_D = util.im2tensor(np.array(util.tensor2im(colorTransfer_real_A)))
-        self.fake_A_D = util.im2tensor(np_fake_A)
+        self.real_A_D = self.JitterSample(self.real_A)
 
         self.real_A_D_S = self.real_A_D * self.real_A_mask
-        self.fake_A_D_S = self.fake_A_D * real_B_mask
+        self.fake_A_D_S = self.fake_A_D * real_mask
 
-        toVGG = torch.cat([self.fake_A_D, self.real_A_D], 0)
-        out0, out1, out2, out3 = self.calculate_Features(self.upsample_Feature(toVGG))
+        #toVGG = torch.cat([self.fake_A_D_S, self.real_A_D_S], 0)
+        #out0, out1, out2 = self.calculate_Features(self.upsample_Feature(toVGG))
 
-        concat_fake_A_M = torch.cat([ self.upsample_M(out0[0,:,:,:].unsqueeze(0)), self.upsample_M(out1[0,:,:,:].unsqueeze(0)), self.upsample_M(out2[0,:,:,:].unsqueeze(0))], 1)
-        #concat_fake_A_M = torch.cat([self.upsample_M(fake_A), concat_fake_A_M], 1)
+        #out0 = self.upsample_M(out0.float())
+        #out1 = self.upsample_M(out1.float())
+        #out2 = self.upsample_M(out2.float())
 
-        concat_real_A_M = torch.cat([ self.upsample_M(out0[1,:,:,:].unsqueeze(0)), self.upsample_M(out1[1,:,:,:].unsqueeze(0)), self.upsample_M(out2[1,:,:,:].unsqueeze(0))], 1)
+        #concat_fake_A_M = torch.cat([ out0[0,:,:,:].unsqueeze(0), out1[0,:,:,:].unsqueeze(0), out2[0,:,:,:].unsqueeze(0)], 1)
 
+        #concat_real_A_M = torch.cat([ out0[1,:,:,:].unsqueeze(0), out1[1,:,:,:].unsqueeze(0), out2[1,:,:,:].unsqueeze(0)], 1)
 
-
-
-
-
-        self.loss_D_B_M, self.squeeze_real, self.squeeze_fake = self.backward_D_basic(self.netD_B_M, concat_real_A_M, concat_fake_A_M, self.real_A_mask, real_B_mask)
-        #self.loss_D_B_G, _, _ = self.backward_D_basic(self.netD_B_G, concat_real_A_G, concat_fake_A_G)
+        self.loss_D_B_M = self.backward_D_basic(self.real_A_D_S, self.fake_A_D_S, self.real_A_mask, real_mask)
 
 
     def calculate_Features(self, image):
-        
-        generated = (image+1.0)/2.0*255.0
-        input_image = generated-self.bb
-        return self.netF(input_image)
+        image = (image+1.0)/2.0*255.0-self.bb
+        return self.netF((image))
 
     def backward_G(self,epoch):
         """Calculate the loss for generators G_A and G_B"""
@@ -286,36 +273,36 @@ class FeatureGANModel(BaseModel):
         self.loss_idt_A = 0
         
 
-        toVGG = torch.cat([self.fake_A, self.real_B], 0)
+        toVGG = torch.cat([self.fake_A*self.real_B_mask, self.real_B*self.real_B_mask], 0)
 	
-        out0, out1, out2, out3 = self.calculate_Features(self.upsample_Feature(toVGG))
-        self.loss_F_B_F, _, _, _= self.criterionFeatureRobots(out0[1,:,:,:], out1[1,:,:,:], out2[1,:,:,:], out0[0,:,:,:], out1[0,:,:,:], out2[0,:,:,:])
+        out0, out1, out2 = self.calculate_Features(self.upsample_Feature(toVGG))
+        out0 = self.upsample_M(out0.float())
+        out1 = self.upsample_M(out1.float())
+        out2 = self.upsample_M(out2.float())
+
+        self.loss_F_B_F = self.criterionFeatureRobots(out0[1,:,:,:], out1[1,:,:,:], out2[1,:,:,:], out0[0,:,:,:], out1[0,:,:,:], out2[0,:,:,:]) * self.factorForground
 
         backgroundMask = ~(self.real_B_mask>0)
         self.fake_A_background = self.fake_A * backgroundMask
         self.real_B_background = self.real_B * backgroundMask
 
 
-        #self.loss_F_B_F = self.criterionL1(self.fake_A, self.real_B)*0.2
-        self.loss_F_B_B = self.criterionL1(self.fake_A_background, self.real_B_background)*2
-
+        self.loss_F_B_B = self.criterionL1(self.fake_A_background, self.real_B_background) * self.factorBackground
         self.loss_F_B = self.loss_F_B_B + self.loss_F_B_F
 
-        concat_fake_A_M = torch.cat([ self.upsample_M(out0[0,:,:,:].unsqueeze(0)), self.upsample_M(out1[0,:,:,:].unsqueeze(0)), self.upsample_M(out2[0,:,:,:].unsqueeze(0))], 1)
+
+
+        #concat_fake_A_M = torch.cat([out0[0,:,:,:].unsqueeze(0), out1[0,:,:,:].unsqueeze(0), out2[0,:,:,:].unsqueeze(0)], 1)
 
 
 
-        b, squeeze =self.netD_B_M(concat_fake_A_M)
+        #self.b, squeeze =self.netD_B_M(concat_fake_A_M) 
 
-        #self.loss_G_B_L = self.criterionGAN(a, True)
-        #mult = torch.autograd.variable(self.disc_div/torch.sum(self.real_B_mask))
-        
-        self.loss_G_B = self.criterionGAN(self.upsample_M(b), True, self.upsample_M(self.real_B_mask))
-        #print("loss_G_B_M",self.loss_G_B_M)
-        #self.loss_G_B_G = self.criterionGAN(c, True)
-        #self.loss_G_B_M = self.loss_G_B_M# * mult
-        #print("loss_G_B_M2", self.loss_G_B_M)
-        #self.loss_G_B = self.loss_G_B_M# + self.loss_G_B_G * 1/3
+        sample, shape = self.processDPTSample(self.fake_A * self.real_B_mask)
+        prediction = self.netD_B_M.forward(sample).squeeze(0)
+        self.b = self.processDPTOutput(prediction.unsqueeze(0), shape)
+        self.b = self.b.unsqueeze(0)
+        self.loss_G_B = self.criterionGAN(self.b, True, self.real_B_mask)
 
         self.loss_idt_B = 0
 
@@ -348,31 +335,5 @@ class FeatureGANModel(BaseModel):
         self.backward_G(epoch)             # calculate gradients for G_A and G_B
         self.loss_G.backward()
         self.optimizer_G.step()       # update G_A and G_B's weights
-
-        #self.optimizer_M.step()
-
-        
-    def get_one_hot(self,I, labels):
-        I = I * 2.0 / 255.0 - 1
-        tensor = (torch.abs(labels[0,:,:] - I)<0.001)
-        return tensor
-
-
-    def one_hot(self, image, labels):
-        labels=labels.squeeze(0)
-        image=image.squeeze(0)
-        channels = []
-
-        channels.append(self.get_one_hot(0,labels) )#background
-        channels.append(self.get_one_hot(51,labels) )#shirt
-        channels.append(self.get_one_hot(101,labels) )#robots
-        channels.append(self.get_one_hot(151,labels) )#lines
-        channels.append(self.get_one_hot(255,labels) )#field
-
-        for channel in channels:
-            image = torch.cat([image,channel.unsqueeze(0).float()],0)
-        image.unsqueeze(0)
-        
-        return image
 
 

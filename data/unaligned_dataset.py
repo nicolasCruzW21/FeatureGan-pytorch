@@ -54,14 +54,14 @@ class UnalignedDataset(BaseDataset):
         transform_params = get_params(self.opt, B_model.size)
         self.transform_Model = get_transform(self.opt, transform_params, normalize =True, grayscale=False, rotate = True)
         self.transform_B_model = self.transform_Model(B_model).unsqueeze(0)
-        self.transform_B_models = self.transform_B_model
+        #self.transform_B_models = self.transform_B_model
         print("self.B_models_size", self.B_models_size)
-        for i in range(1, self.B_models_size):
-            B_model = Image.open(self.B_models_paths[i]).convert('RGB')
-            self.transform_B_model = self.transform_Model(B_model).unsqueeze(0)
-            self.transform_B_models = torch.cat([self.transform_B_models, self.transform_B_model],0)
+        #for i in range(1, self.B_models_size):
+            #B_model = Image.open(self.B_models_paths[i]).convert('RGB')
+            #self.transform_B_model = self.transform_Model(B_model).unsqueeze(0)
+            #self.transform_B_models = torch.cat([self.transform_B_models, self.transform_B_model],0)
             
-        print(self.transform_B_models.shape)
+        #print(self.transform_B_models.shape)
         btoA = self.opt.direction == 'BtoA'
         input_nc = self.opt.output_nc if btoA else self.opt.input_nc       # get the number of channels of input image
         output_nc = self.opt.input_nc if btoA else self.opt.output_nc      # get the number of channels of output image
@@ -103,11 +103,11 @@ class UnalignedDataset(BaseDataset):
         A_img = Image.open(A_path).convert('RGB')
         B_img = Image.open(B_path).convert('RGB')
 
-        A_blured = Image.open(A_path_blured).convert('RGB')
+        #A_blured = Image.open(A_path_blured).convert('RGB')
         A_depth = Image.open(A_path_depth).convert('L')
         A_mask = Image.open(A_path_mask).convert('L')
 
-        B_blured = Image.open(B_path_blured).convert('RGB')
+        #B_blured = Image.open(B_path_blured).convert('RGB')
         B_depth = Image.open(B_path_depth).convert('L')
         B_mask = Image.open(B_path_mask).convert('L')
 
@@ -119,8 +119,8 @@ class UnalignedDataset(BaseDataset):
             A_img = TF.rotate(A_img, rotate)
             B_img = TF.rotate(B_img, rotate)
 
-            A_blured_img = TF.rotate(A_blured, rotate)
-            B_blured_img = TF.rotate(B_blured, rotate)
+            #A_blured_img = TF.rotate(A_blured, rotate)
+            #B_blured_img = TF.rotate(B_blured, rotate)
 
             A_depth_img = TF.rotate(A_depth, rotate)
             B_depth_img = TF.rotate(B_depth, rotate)
@@ -145,8 +145,8 @@ class UnalignedDataset(BaseDataset):
         A_depth = self.transform_L(A_depth_img)
         B_depth = self.transform_L(B_depth_img)
 
-        A_blured = self.transform_A(A_blured_img)
-        B_blured = self.transform_B(B_blured_img)
+        #A_blured = self.transform_A(A_blured_img)
+        #B_blured = self.transform_B(B_blured_img)
 
         A_mask = self.transform_M(A_mask_img)
         B_mask = self.transform_M(B_mask_img)
@@ -155,10 +155,9 @@ class UnalignedDataset(BaseDataset):
         self.opt.crop_size = self.original_crop
         return {'A': A, 'B': B, \
         'A_depth': A_depth, 'B_depth': B_depth, \
-        'A_blured': A_blured, 'B_blured': B_blured, \
         'A_mask': A_mask, 'B_mask': B_mask,\
-        'A_paths': A_path, 'B_paths': B_path,\
-        'A_models': self.transform_B_models, 'B_models': self.transform_B_models}
+        'A_paths': A_path, 'B_paths': B_path}#,\
+        #'A_models': self.transform_B_models, 'B_models': self.transform_B_models}
 
     def __len__(self):
         """Return the total number of images in the dataset.
